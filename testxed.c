@@ -41,6 +41,35 @@ typedef struct {
 	};
 } gen_reg_t;
 
+typedef struct 
+{
+	Bit64u CF 		:1;
+	Bit64u reserved0	:1;
+	Bit64u PF		:1;
+	Bit64u reserved1	:1;
+	Bit64u AF		:1;
+	Bit64u reserved2	:1;
+	Bit64u ZF		:1;
+	Bit64u SF		:1;
+	Bit64u TF		:1;
+	Bit64u IF		:1;
+	Bit64u DF		:1;
+	Bit64u OF		:1;
+	Bit64u IOPL		:2;
+	Bit64u NT		:1;
+	Bit64u reserved3	:1;
+
+	Bit64u RF		:1;
+	Bit64u VM		:1;
+	Bit64u AC		:1;
+	Bit64u VIF		:1;
+	Bit64u VIP		:1;
+	Bit64u ID		:1;
+	Bit64u reserved4	:10;
+
+	Bit64u reserved5	:32;	
+} flags_reg_t;
+
 enum Regs64 {
 	REG_RAX,
 	REG_RCX,
@@ -77,6 +106,7 @@ typedef struct {
 	// tmp: temp register
 	// nil: null register
 	gen_reg_t gen_reg[GENERAL_REGISTERS+3];
+	flags_reg_t rflags;
 
 	void* stack_buf;
 	int stack_buf_len;
@@ -235,30 +265,68 @@ xed_uint32_t get_rm32 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t
 						address = cpu->gen_reg[REG_RDI].rrx + disp;
 						break;
 				}
+
+				// if it's on the stack buffer, overwrite directly, no mc needed
+				if ((address >= (xed_uint64_t)cpu->stack_buf) && (address <= (xed_uint64_t)cpu->stack_buf + cpu->stack_buf_len))
+				{
+					ret_value =  *(xed_uint32_t*)address;
+				}
+				else
+				{
+					int ret = 0;
+					// wait for testcase
+					printf("Read memory outside of current stack, address 0x%lx\t", address);
+					ret = try_read_memory32(address, &ret_value, mc, mc_max_cnt);
+					if (-1 == ret)
+					{
+						printf("address invalid, emulated program should crash or throw sigfault\t");
+					}
+				}
+				printf("address: 0x%lx value: 0x%x\t", address, ret_value);
 			}
 			break;
 		case 3:
-			return get_r32(cpu, modrm);
+			{
+				switch (modrm.rm)
+				{
+					case 0:
+						ret_value = cpu->gen_reg[REG_RAX].dword.erx;
+						printf("EAX: 0x%x\t", ret_value);
+						break;
+					case 1:
+						ret_value = cpu->gen_reg[REG_RCX].dword.erx;
+						printf("ECX: 0x%x\t", ret_value);
+						break;
+					case 2:
+						ret_value = cpu->gen_reg[REG_RDX].dword.erx;
+						printf("EDX: 0x%x\t", ret_value);
+						break;
+					case 3:
+						ret_value = cpu->gen_reg[REG_RBX].dword.erx;
+						printf("EBX: 0x%x\t", ret_value);
+						break;
+					case 4:
+						ret_value = cpu->gen_reg[REG_RSP].dword.erx;
+						printf("ESP: 0x%x\t", ret_value);
+						break;
+					case 5:
+						ret_value = cpu->gen_reg[REG_RBP].dword.erx;
+						printf("EBP: 0x%x\t", ret_value);
+						break;
+					case 6:
+						ret_value = cpu->gen_reg[REG_RSI].dword.erx;
+						printf("ESI: 0x%x\t", ret_value);
+						break;
+					case 7:
+						ret_value = cpu->gen_reg[REG_RDI].dword.erx;
+						printf("EDI: 0x%x\t", ret_value);
+						break;
+				}
+			}
+			break;
 	}
 
-	// if it's on the stack buffer, overwrite directly, no mc needed
-	if ((address >= (xed_uint64_t)cpu->stack_buf) && (address <= (xed_uint64_t)cpu->stack_buf + cpu->stack_buf_len))
-	{
-		ret_value =  *(xed_uint32_t*)address;
-	}
-	else
-	{
-		int ret = 0;
-		// wait for testcase
-		printf("Read memory outside of current stack, address 0x%lx\t", address);
-		ret = try_read_memory32(address, &ret_value, mc, mc_max_cnt);
-		if (-1 == ret)
-		{
-			printf("address invalid, emulated program should crash or throw sigfault\t");
-		}
-	}
 
-	printf("address: 0x%lx value: 0x%x\t", address, ret_value);
 	return ret_value;
 }
 //-----------------------------------------------------------------------------//
@@ -297,89 +365,146 @@ int set_rm32 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, xed_uint32_t 
 {
 	xed_int64_t address = 0;
 	xed_int64_t disp = 0;
-	mc_t* pmc = NULL;
 
-	int i = 0;
-
-	for (i = 0; i < mc_max_cnt; i++)
-	{
-		if (-1 == mc[i].address)
-		{
-			pmc = &mc[i];
-		}
-	}
-
-	if (NULL == pmc)
-	{
-		printf("ERROR: more mc!!!\n");
-		exit(1);
-	}
-
-	if (3 == modrm.rm)
-	{
-		printf("ERROR in set_rm32!!!!!!!!!!!!!\n");
-		exit(1);
-	}
-
-	if (xed_operand_values_has_memory_displacement(xedd))
-	{
-		xed_uint_t disp_bits =
-			xed_decoded_inst_get_memory_displacement_width(xedd, 0);
-		if (disp_bits)
-		{
-			printf("DISPLACEMENT_BYTES= %u ", disp_bits);
-			disp = xed_decoded_inst_get_memory_displacement(xedd, 0);
-			printf("0x" XED_FMT_LX16 " base10=" XED_FMT_LD "\t", disp, disp);
-		}
-	}
-
-	switch (modrm.rm)
+	switch (modrm.mod)
 	{
 		case 0:
-			address = cpu->gen_reg[REG_RAX].rrx + disp;
-			break;
 		case 1:
-			address = cpu->gen_reg[REG_RCX].rrx + disp;
-			break;
 		case 2:
-			address = cpu->gen_reg[REG_RDX].rrx + disp;
+			{
+				if (xed_operand_values_has_memory_displacement(xedd))
+				{
+					xed_uint_t disp_bits =
+						xed_decoded_inst_get_memory_displacement_width(xedd, 0);
+					if (disp_bits)
+					{
+						printf("DISPLACEMENT_BYTES= %u ", disp_bits);
+						disp = xed_decoded_inst_get_memory_displacement(xedd, 0);
+						printf("0x" XED_FMT_LX16 " base10=" XED_FMT_LD "\t", disp, disp);
+					}
+				}
+
+				switch (modrm.rm)
+				{
+					case 0:
+						address = cpu->gen_reg[REG_RAX].rrx + disp;
+						break;
+					case 1:
+						address = cpu->gen_reg[REG_RCX].rrx + disp;
+						break;
+					case 2:
+						address = cpu->gen_reg[REG_RDX].rrx + disp;
+						break;
+					case 3:
+						address = cpu->gen_reg[REG_RBX].rrx + disp;
+						break;
+					case 4:
+						printf("SIB unimplemented!!!!!!!!!!!\n");
+						break;
+					case 5:
+						if (0 == modrm.mod)
+						{
+							printf("mod 0, RM 101 SIB unimplemented!!!!!!!!!!!\n");
+						}
+						else
+						{
+							address = cpu->gen_reg[REG_RBP].rrx + disp;
+						}
+						break;
+					case 6:
+						address = cpu->gen_reg[REG_RSI].rrx + disp;
+						break;
+					case 7: 
+						address = cpu->gen_reg[REG_RDI].rrx + disp;
+						break;
+				}
+
+				// if it's on the stack buffer, overwrite directly, no mc needed
+				if ((address >= (xed_uint64_t)cpu->stack_buf) && (address <= (xed_uint64_t)cpu->stack_buf + cpu->stack_buf_len))
+				{
+					*(xed_uint32_t*)address = value;
+					printf("Write on stack, address 0x%lx value 0x%x\t", address, value);
+				}
+				else
+				{
+					mc_t* pmc = NULL;
+
+					int i = 0;
+
+					for (i = 0; i < mc_max_cnt; i++)
+					{
+						if (-1 == mc[i].address)
+						{
+							pmc = &mc[i];
+						}
+					}
+
+					if (NULL == pmc)
+					{
+						printf("ERROR: more mc!!!\n");
+						exit(1);
+					}
+
+
+					printf("Write memory outside of current stack, (to mc), address 0x%lx, value 0x%x\t", address, value);
+					pmc->address = address;
+					pmc->value = value;
+				}
+
+			}
 			break;
 		case 3:
-			address = cpu->gen_reg[REG_RBX].rrx + disp;
-			break;
-		case 4:
-			printf("SIB unimplemented!!!!!!!!!!!\n");
-			break;
-		case 5:
-			if (0 == modrm.mod)
 			{
-				printf("mod 0, RM 101 SIB unimplemented!!!!!!!!!!!\n");
+				switch (modrm.rm)
+				{
+					case 0:
+						cpu->gen_reg[REG_RAX].rrx = 0;
+						cpu->gen_reg[REG_RAX].dword.erx = value;
+						printf("EAX<-0x%x\t", value);
+						break;
+					case 1:
+						cpu->gen_reg[REG_RCX].rrx = 0;
+						cpu->gen_reg[REG_RCX].dword.erx = value;
+						printf("ECX<-0x%x\t", value);
+						break;
+					case 2:
+						cpu->gen_reg[REG_RDX].rrx = 0;
+						cpu->gen_reg[REG_RDX].dword.erx = value;
+						printf("EDX<-0x%x\t", value);
+						break;
+					case 3:
+						cpu->gen_reg[REG_RBX].rrx = 0;
+						cpu->gen_reg[REG_RBX].dword.erx = value;
+						printf("EBX<-0x%x\t", value);
+						break;
+					case 4:
+						cpu->gen_reg[REG_RSP].rrx = 0;
+						cpu->gen_reg[REG_RSP].dword.erx = value;
+						printf("ESP<-0x%x\t", value);
+						break;
+					case 5:
+						cpu->gen_reg[REG_RBP].rrx = 0;
+						cpu->gen_reg[REG_RBP].dword.erx = value;
+						printf("EBP<-0x%x\t", value);
+						break;
+					case 6:
+						cpu->gen_reg[REG_RSI].rrx = 0;
+						cpu->gen_reg[REG_RSI].dword.erx = value;
+						printf("ESI<-0x%x\t", value);
+						break;
+					case 7:
+						cpu->gen_reg[REG_RDI].rrx = 0;
+						cpu->gen_reg[REG_RDI].dword.erx = value;
+						printf("EDI<-0x%x\t", value);
+						break;
+				}
 			}
-			else
-			{
-				address = cpu->gen_reg[REG_RBP].rrx + disp;
-			}
-			break;
-		case 6:
-			address = cpu->gen_reg[REG_RSI].rrx + disp;
-			break;
-		case 7: 
-			address = cpu->gen_reg[REG_RDI].rrx + disp;
 			break;
 	}
 
-	// if it's on the stack buffer, overwrite directly, no mc needed
-	if ((address >= (xed_uint64_t)cpu->stack_buf) && (address <= (xed_uint64_t)cpu->stack_buf + cpu->stack_buf_len))
-	{
-		*(xed_uint32_t*)address = value;
-		printf("Write on stack, address 0x%lx value 0x%x\t", address, value);
-	}
-	else
-	{
-		printf("Write memory outside of current stack, (to mc), address 0x%lx, value 0x%x\t", address, value);
-		pmc->address = address;
-		pmc->value = value;
-	}
+
+
+
 
 	return 0;
 }
@@ -655,7 +780,7 @@ int emulate_mov (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 			{
 				// 8B/r			MOV r16, r/m16
 				// 8B/r			MOV r32, r/m32
-				// REW.W + 8B/r		MOV r64, r/m64
+				// REX.W + 8B/r		MOV r64, r/m64
 				//
 				modrm_t modrm;
 				xed_reg_enum_t r0 = xed_decoded_inst_get_reg(xedd, XED_OPERAND_REG0);
@@ -667,13 +792,13 @@ int emulate_mov (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 				switch (modrm.mod)
 				{
 					case 0:
-						printf("Unimplemented!!!! 8B mov mod 0\t");
+						printf("Unimplemented!!!!! 8B mov mod 0\t");
 						break;
 					case 1:
 						{
 							if (0 != np)
 							{
-								printf("Unimplemented!!!! PREFIX 8B mov mod 1\t");
+								printf("Unimplemented!!!!! PREFIX 8B mov mod 1\t");
 							}
 							else
 							{
@@ -700,6 +825,78 @@ int emulate_mov (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 			printf("Unhandled MOV %x\t", op_byte);
 			break;
 
+	}
+
+	return 0;
+}
+//-----------------------------------------------------------------------------//
+int emulate_add (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
+{
+	xed_uint8_t op_byte;
+	xed_uint8_t np;
+	const xed_operand_values_t* ov;
+	int i = 0;
+
+	np = xed_decoded_inst_get_nprefixes(xedd);
+	op_byte = xed_decoded_inst_get_byte(xedd, np);
+	ov = xed_decoded_inst_operands_const(xedd);
+
+	if (0 != np) 
+	{
+		printf("PREFIX");
+		for (i = 0; i < np; i++) {
+			printf(" %2x", xed_decoded_inst_get_byte(xedd, i));
+		}
+		printf("\t");
+	}
+
+	switch (op_byte)
+	{
+		case 0x1:
+			{
+				// 01/r			ADD r/m16, r16
+				// 01/r			ADD r/m32, r32
+				// REX.W + 01/r		ADD r/m64, r64
+				//
+				modrm_t modrm;
+
+				modrm.byte = xed_decoded_inst_get_modrm(xedd);
+				printf("01 ADD ModR/M %2x\t", modrm.byte);
+				printf("mod 0x%x, reg 0x%x, rm 0x%x\t", modrm.mod, modrm.reg, modrm.rm);
+
+				switch (modrm.mod)
+				{
+					case 0:
+					case 1:
+					case 2:
+						printf("Unimplemented!!!!! 0x01 ADD mod 0,1,2\t");
+						break;
+					case 3:
+						{
+							if (0 != np)
+							{
+								printf("Unimplemented!!!!! PREFIX 01 ADD mod 3\t");
+							}
+							else
+							{
+								// add r32, r32
+								// todo: set OF CF
+								xed_uint32_t value_src, value_dst;
+								xed_uint32_t value_sum;
+
+								value_src = get_r32(cpu, modrm);
+								value_dst = get_rm32(xedd, cpu, modrm, mc, mc_max_cnt);
+								value_sum = value_src + value_dst;
+								set_rm32(xedd, cpu, modrm, value_sum, mc, mc_max_cnt);
+							}
+						}
+						break;
+				}
+			}
+			break;
+		default:
+			printf("Unimplemented %x ADD\t", op_byte);
+			break;
 	}
 
 	return 0;
@@ -764,6 +961,7 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
 			break;
 		case XED_ICLASS_ADD:
+			emulate_add(xedd, cpu, mc, mc_max_cnt);
 			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
 			break;
 		case XED_ICLASS_RET_NEAR:
