@@ -603,7 +603,34 @@ int push64 (cpu_t* cpu, xed_uint64_t value)
 
 	p = (xed_uint64_t*)cpu->gen_reg[REG_RSP].rrx;
 
-	*p = value;
+	if (isValidPtr(p, 8))
+	{
+		*p = value;
+		return 0;
+	}
+	else
+	{
+		return -1;
+	}
+}
+//-----------------------------------------------------------------------------//
+int pop64 (cpu_t* cpu, xed_uint64_t* pvalue)
+{
+	xed_uint64_t* p = NULL;
+
+	p = (xed_uint64_t*)cpu->gen_reg[REG_RSP].rrx;
+
+	cpu->gen_reg[REG_RSP].rrx += 8;
+
+	if (isValidPtr(p, 8))
+	{
+		*pvalue = *p;
+		return 0;
+	}
+	else
+	{
+		return -1;
+	}
 
 	return 0;
 }
@@ -616,7 +643,7 @@ int emulate_push (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt
 	op_byte = xed_decoded_inst_get_byte(xedd, np);
 
 
-	if (0x50 == (op_byte & 0xf0))
+	if (0x50 == (op_byte & 0xf8))
 	{
 		int reg = op_byte & 0x7;
 		xed_reg_enum_t r0 = xed_decoded_inst_get_reg(xedd, XED_OPERAND_REG0);
@@ -680,6 +707,92 @@ int emulate_push (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt
 	}
 
 	return 0;
+}
+//-----------------------------------------------------------------------------//
+int emulate_pop (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
+{
+	xed_uint8_t op_byte;
+	xed_uint_t np;
+	int i = 0;
+
+	np = xed_decoded_inst_get_nprefixes(xedd);
+	op_byte = xed_decoded_inst_get_byte(xedd, np);
+
+	if (0 != np) 
+	{
+		printf("PREFIX");
+		for (i = 0; i < np; i++) {
+			printf(" %2x", xed_decoded_inst_get_byte(xedd, i));
+		}
+		printf("\t");
+		printf("Unimplemented!!!!!\t");
+		return 0;
+	}
+
+
+	if (0x58 == (op_byte & 0xf8))
+	{
+		// 58+rd 	pop r64
+		//
+		int reg = op_byte & 0x7;
+		xed_reg_enum_t r0 = xed_decoded_inst_get_reg(xedd, XED_OPERAND_REG0);
+		xed_uint64_t value;
+
+		printf("%2x POP %s\t", op_byte, xed_reg_enum_t2str(r0));
+		
+		switch (reg)
+		{
+			case 0:
+				pop64(cpu, &value);
+				cpu->gen_reg[REG_RAX].rrx = value;
+				printf("RAX<-0x%lx\t", value);
+				break;
+			case 1:
+				pop64(cpu, &value);
+				cpu->gen_reg[REG_RCX].rrx = value;
+				printf("RCX<-0x%lx\t", value);
+				break;
+			case 2:
+				pop64(cpu, &value);
+				cpu->gen_reg[REG_RDX].rrx = value;
+				printf("RDX<-0x%lx\t", value);
+				break;
+			case 3:
+				pop64(cpu, &value);
+				cpu->gen_reg[REG_RBX].rrx = value;
+				printf("RBX<-0x%lx\t", value);
+				break;
+			case 4:
+				pop64(cpu, &value);
+				cpu->gen_reg[REG_RSP].rrx = value;
+				printf("RSP<-0x%lx\t", value);
+				break;
+			case 5:
+				pop64(cpu, &value);
+				cpu->gen_reg[REG_RBP].rrx = value;
+				printf("RBP<-0x%lx\t", value);
+				break;
+			case 6:
+				pop64(cpu, &value);
+				cpu->gen_reg[REG_RSI].rrx = value;
+				printf("RSI<-0x%lx\t", value);
+				break;
+			case 7: 
+				pop64(cpu, &value);
+				cpu->gen_reg[REG_RDI].rrx = value;
+				printf("RDI<-0x%lx\t", value);
+				break;
+		}
+
+	}
+	else
+	{
+		printf("Unimplemented POP %2x\t", op_byte);
+	}
+
+	return 0;
+
+
 }
 //-----------------------------------------------------------------------------//
 int emulate_mov (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
@@ -848,6 +961,8 @@ int emulate_add (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 			printf(" %2x", xed_decoded_inst_get_byte(xedd, i));
 		}
 		printf("\t");
+		printf("Unimplemented!!!!!\t");
+		return 0;
 	}
 
 	switch (op_byte)
@@ -958,6 +1073,7 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
 			break;
 		case XED_ICLASS_POP:
+			emulate_pop(xedd, cpu, mc, mc_max_cnt);
 			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
 			break;
 		case XED_ICLASS_ADD:
