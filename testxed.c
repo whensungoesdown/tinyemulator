@@ -7,6 +7,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 //-----------------------------------------------------------------------------//
+#define TE_SUCCESS		0x0
+#define TE_FUNCTION_RET		0x3
+//-----------------------------------------------------------------------------//
 #define GENERAL_REGISTERS 16
 
 
@@ -946,7 +949,7 @@ int emulate_mov (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 int emulate_add (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 {
 	xed_uint8_t op_byte;
-	xed_uint8_t np;
+	xed_uint_t np;
 	const xed_operand_values_t* ov;
 	int i = 0;
 
@@ -1017,6 +1020,67 @@ int emulate_add (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 	return 0;
 }
 //-----------------------------------------------------------------------------//
+int emulate_cmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
+{
+	xed_uint8_t op_byte;
+	xed_uint8_t np;
+	int i = 0;
+
+	np = xed_decoded_inst_get_nprefixes(xedd);
+	op_byte = xed_decoded_inst_get_byte(xedd, np);
+	
+	if (0 != np) 
+	{
+		printf("PREFIX");
+		for (i = 0; i < np; i++) {
+			printf(" %2x", xed_decoded_inst_get_byte(xedd, i));
+		}
+		printf("\t");
+		printf("Unimplemented!!!!!\t");
+		return 0;
+	}
+
+	switch (op_byte)
+	{
+		case 0x83:
+			{
+				// 83/7 ib		CMP r/m32, imm8
+				// REX.W 83/7 ib	CMP r/m64, imm8
+				//
+				modrm_t modrm;
+				xed_uint32_t value;
+				xed_uint8_t imm;
+
+				modrm.byte = xed_decoded_inst_get_modrm(xedd);
+				printf("83 CMP ModR/M %2x\t", modrm.byte);
+				printf("mod 0x%x, reg 0x%x, rm 0x%x\t", modrm.mod, modrm.reg, modrm.rm);
+
+				value = get_rm32(xedd, cpu, modrm, mc, mc_max_cnt);
+				imm = xed_decoded_inst_get_signed_immediate(xedd);
+				printf("r/m32 value:0x%x, imm:0x%x\t", value, imm);
+				// CMP set SF PF ZF  todo:
+				if (0 == value - (xed_uint32_t)imm)
+				{
+					cpu->rflags.ZF = 1;
+				}
+				else
+				{
+					cpu->rflags.ZF = 0;
+				}
+				//printf("ZF:%c\t", cpu->rflags.ZF? '1':'0');
+				printf("ZF:%d\t", cpu->rflags.ZF);
+
+			}
+			break;
+		default:
+			printf("Unimplemented %x CMP\t", op_byte);
+			break;
+	}
+
+	return 0;
+
+}
+//-----------------------------------------------------------------------------//
 int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 {
 	int ret = 0;
@@ -1080,9 +1144,14 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 			emulate_add(xedd, cpu, mc, mc_max_cnt);
 			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
 			break;
-		case XED_ICLASS_RET_NEAR:
+		case XED_ICLASS_CMP:
+			emulate_cmp(xedd, cpu, mc, mc_max_cnt);
 			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
 			break;
+		case XED_ICLASS_RET_NEAR:
+			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
+			printf("function return 0x%llx\n", cpu->gen_reg[REG_RAX].rrx);
+			return TE_FUNCTION_RET;
 
 		default:
 			printf("Unhandled iclass %s\n", xed_iclass_enum_t2str(iclass));
@@ -1118,6 +1187,16 @@ int testfunc(int a, int b)
 {
 	return a + b;
 }
+
+int testfunc2(int a, int b)
+{
+	if (0 == a)
+	{
+		return 0;
+	}
+
+	return a + b;
+}
 //-----------------------------------------------------------------------------//
 int main(void)
 {
@@ -1150,8 +1229,15 @@ int main(void)
 	g_cpu.gen_reg[REG_RSP].rrx = (Bit64u)stack + STACK_SIZE;
 	g_cpu.gen_reg[REG_RBP].rrx = (Bit64u)stack + STACK_SIZE; // 
 
+	g_cpu.gen_reg[REG_RSI].rrx = 5;
+	g_cpu.gen_reg[REG_RDI].rrx = 3;
+
 	// setup eip
-	g_cpu.gen_reg[REG_RIP].rrx = (Bit64u)testfunc;
+	g_cpu.gen_reg[REG_RIP].rrx = (Bit64u)testfunc2;
+
+
+
+	//printf("%d\n", testfunc(2,3));
 
 	cpu_loop(&g_cpu, 10, mc, MC_MAX);
 
