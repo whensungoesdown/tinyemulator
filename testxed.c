@@ -1310,45 +1310,11 @@ int cpu_loop (cpu_t* cpu, int instruction_max_cnt, mc_t* mc, int mc_max_cnt /*, 
 	return ret;
 }
 //-----------------------------------------------------------------------------//
-// test cases:
-// a = 3, b = 5, result = 8
-//
-int testfunc (int a, int b)
-{
-	return a + b;
-}
-
-// test cases:
-//  a = 3, b = 5, result = 8
-//  a = 0, b = 5, result = 0
-//
-int testfunc2 (int a, int b)
-{
-	if (0 == a)
-	{
-		return 0;
-	}
-
-	return a + b;
-}
-
-// test caces:
-//
-int testfunc3 (int a, int b)
-{
-	int tmp = 5;
-
-	a = 3;
-	b = 4;
-
-	return tmp + a + b;
-}
-//-----------------------------------------------------------------------------//
-int main(void)
+int te_function_emulate (int inst_count, void* func, long long int  para0, long long int para1, long long int para2, long long int para3)
 {
 	void* stack = NULL;
 
-#define MC_MAX		10
+#define MC_MAX		50
 	mc_t mc[MC_MAX];
 	int i = 0;
 
@@ -1375,17 +1341,19 @@ int main(void)
 	g_cpu.gen_reg[REG_RSP].rrx = (Bit64u)stack + STACK_SIZE;
 	g_cpu.gen_reg[REG_RBP].rrx = (Bit64u)stack + STACK_SIZE; // 
 
-	g_cpu.gen_reg[REG_RSI].rrx = 5;
-	g_cpu.gen_reg[REG_RDI].rrx = 0;
+	g_cpu.gen_reg[REG_RDI].rrx = para0;
+	g_cpu.gen_reg[REG_RSI].rrx = para1;
+	g_cpu.gen_reg[REG_RDX].rrx = para2;
+	g_cpu.gen_reg[REG_RCX].rrx = para3;
 
 	// setup eip
-	g_cpu.gen_reg[REG_RIP].rrx = (Bit64u)testfunc3;
+	g_cpu.gen_reg[REG_RIP].rrx = (Bit64u)func;
 
 
 
 	//printf("%d\n", testfunc(2,3));
 
-	cpu_loop(&g_cpu, 20, mc, MC_MAX);
+	cpu_loop(&g_cpu, inst_count, mc, MC_MAX);
 
 
 	free(stack);
