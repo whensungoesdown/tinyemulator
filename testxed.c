@@ -936,7 +936,43 @@ int emulate_mov (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 			}
 			break;
 		case 0xC7:
-			printf("C7 MOV\t");
+			{
+				// C7 /0 id		MOV r/m32, imm32
+				// REX.W + C7 /0 io	MOV r/m64, imm32
+				//
+				modrm_t modrm;
+
+				modrm.byte = xed_decoded_inst_get_modrm(xedd);
+				printf("C7 MOV ModR/M %2x\t", modrm.byte);
+				printf("mod 0x%x, reg 0x%x, rm 0x%x\t", modrm.mod, modrm.reg, modrm.rm);
+
+				if (0 != np)
+				{
+					printf("Unimplemented!!!!! PREFIX C7 MOV\t");
+					return 0;
+				}
+
+				switch (modrm.mod)
+				{
+					case 0:
+					case 1:
+					case 2:
+						{
+							xed_uint32_t value;
+							value = xed_decoded_inst_get_signed_immediate(xedd);
+							printf("imm:0x%x\t", value);
+							set_rm32(xedd, cpu, modrm, value, mc, mc_max_cnt);
+						}
+						break;
+					case 3:
+						{
+							printf("Unimplemented!!!!! PREFIX C7 MOV mod 3\t");
+						}
+						break;
+				}
+
+				return 0;
+			}
 			break;
 		default:
 			printf("Unhandled MOV %x\t", op_byte);
@@ -1185,27 +1221,27 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 	switch (iclass)
 	{
 		case XED_ICLASS_MOV:
-			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_mov(xedd, cpu, mc, mc_max_cnt);
 			break;
 		case XED_ICLASS_PUSH:
-			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_push(xedd, cpu, mc, mc_max_cnt);
 			break;
 		case XED_ICLASS_POP:
-			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_pop(xedd, cpu, mc, mc_max_cnt);
 			break;
 		case XED_ICLASS_ADD:
-			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_add(xedd, cpu, mc, mc_max_cnt);
 			break;
 		case XED_ICLASS_CMP:
-			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_cmp(xedd, cpu, mc, mc_max_cnt);
 			break;
 		case XED_ICLASS_JNZ:
-			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			ret = emulate_jnz(xedd, cpu, mc, mc_max_cnt, &new_rip);
 			if (TE_JUMP == ret)
 			{
@@ -1224,7 +1260,7 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 			}
 			break;
 		case XED_ICLASS_JMP:
-			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			ret = emulate_jmp(xedd, cpu, mc, mc_max_cnt, &new_rip);
 			if (TE_JUMP == ret)
 			{
@@ -1239,7 +1275,7 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 			}
 			break;
 		case XED_ICLASS_RET_NEAR:
-			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			printf("function return 0x%llx\n", cpu->gen_reg[REG_RAX].rrx);
 			return TE_FUNCTION_RET;
 
@@ -1268,24 +1304,25 @@ int cpu_loop (cpu_t* cpu, int instruction_max_cnt, mc_t* mc, int mc_max_cnt /*, 
 		printf("RIP: 0x%llx\n", cpu->gen_reg[REG_RIP].rrx);
 		ret = execute_one_instruction(&xedd, cpu, mc, mc_max_cnt);
 		if (0 != ret) break;
+		printf("\n\n");
 	}
 
 	return ret;
 }
 //-----------------------------------------------------------------------------//
-// test case:
+// test cases:
 // a = 3, b = 5, result = 8
 //
-int testfunc(int a, int b)
+int testfunc (int a, int b)
 {
 	return a + b;
 }
 
-// test case:
+// test cases:
 //  a = 3, b = 5, result = 8
 //  a = 0, b = 5, result = 0
 //
-int testfunc2(int a, int b)
+int testfunc2 (int a, int b)
 {
 	if (0 == a)
 	{
@@ -1293,6 +1330,18 @@ int testfunc2(int a, int b)
 	}
 
 	return a + b;
+}
+
+// test caces:
+//
+int testfunc3 (int a, int b)
+{
+	int tmp = 5;
+
+	a = 3;
+	b = 4;
+
+	return tmp + a + b;
 }
 //-----------------------------------------------------------------------------//
 int main(void)
@@ -1330,7 +1379,7 @@ int main(void)
 	g_cpu.gen_reg[REG_RDI].rrx = 0;
 
 	// setup eip
-	g_cpu.gen_reg[REG_RIP].rrx = (Bit64u)testfunc2;
+	g_cpu.gen_reg[REG_RIP].rrx = (Bit64u)testfunc3;
 
 
 
