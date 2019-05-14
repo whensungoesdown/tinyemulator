@@ -857,10 +857,45 @@ int emulate_mov (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 					else
 					{
 						// 32
-						printf("Unimplemented!!!!! mov reg32, reg32\t");
-						//xed_uint32_t value;
-						//value = get_r32(cpu, modrm);
-						//set_r64(cpu, modrm, value);
+						xed_uint32_t value;
+						value = get_r32(cpu, modrm);
+						xed_reg_enum_t r1 = xed_decoded_inst_get_reg(xedd, XED_OPERAND_REG1);
+						printf("mov %s, %s\t", xed_reg_enum_t2str(r0), xed_reg_enum_t2str(r1));
+						switch (modrm.rm)
+						{
+							case 0:
+								cpu->gen_reg[REG_RAX].dword.erx = value;
+								printf("EAX<-0x%x\t", value);
+								break;
+							case 1:
+								cpu->gen_reg[REG_RCX].dword.erx = value;
+								printf("ECX<-0x%x\t", value);
+								break;
+							case 2:
+								cpu->gen_reg[REG_RDX].dword.erx = value;
+								printf("EDX<-0x%x\t", value);
+								break;
+							case 3:
+								cpu->gen_reg[REG_RBX].dword.erx = value;
+								printf("EBX<-0x%x\t", value);
+								break;
+							case 4:
+								cpu->gen_reg[REG_RSP].dword.erx = value;
+								printf("ESP<-0x%x\t", value);
+								break;
+							case 5:
+								cpu->gen_reg[REG_RBP].dword.erx = value;
+								printf("EBP<-0x%x\t", value);
+								break;
+							case 6:
+								cpu->gen_reg[REG_RSI].dword.erx = value;
+								printf("ESI<-0x%x\t", value);
+								break;
+							case 7:
+								cpu->gen_reg[REG_RDI].dword.erx = value;
+								printf("EDI<-0x%x\t", value);
+								break;
+						}
 					}
 
 
@@ -1060,7 +1095,7 @@ int emulate_add (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 int emulate_cmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 {
 	xed_uint8_t op_byte;
-	xed_uint8_t np;
+	xed_uint_t np;
 	int i = 0;
 
 	np = xed_decoded_inst_get_nprefixes(xedd);
@@ -1116,6 +1151,64 @@ int emulate_cmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 
 	return 0;
 
+}
+//-----------------------------------------------------------------------------//
+int emulate_test (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
+{
+	xed_uint8_t op_byte;
+	xed_uint_t np;
+	int i = 0;
+
+	np = xed_decoded_inst_get_nprefixes(xedd);
+	op_byte = xed_decoded_inst_get_byte(xedd, np);
+
+	if (0 != np) 
+	{
+		printf("PREFIX");
+		for (i = 0; i < np; i++) {
+			printf(" %2x", xed_decoded_inst_get_byte(xedd, i));
+		}
+		printf("\t");
+		printf("Unimplemented!!!!!\t");
+		return 0;
+	}
+
+	switch (op_byte)
+	{
+		case 0x85:
+			{
+				// 85 /r		TEST r/m32, r32
+				// REX.W + 85 /r	TEST r/m64, r64
+				//
+				modrm_t modrm;
+				xed_int32_t value0, value1;
+				xed_int32_t value_result;
+
+				modrm.byte = xed_decoded_inst_get_modrm(xedd);
+				printf("83 CMP ModR/M %2x\t", modrm.byte);
+				printf("mod 0x%x, reg 0x%x, rm 0x%x\t", modrm.mod, modrm.reg, modrm.rm);
+
+				value0 = get_rm32(xedd, cpu, modrm, mc, mc_max_cnt);
+				value1 = get_r32(cpu, modrm);
+				value_result = value0 & value1;
+				if (0 == value_result)
+				{
+					cpu->rflags.ZF = 1;
+				}
+				else
+				{
+					cpu->rflags.ZF = 0;
+				}
+			}
+			break;
+		default:
+			printf("Unimplemented %x TEST\t", op_byte);
+			break;
+	}
+
+	
+
+	return 0;
 }
 //-----------------------------------------------------------------------------//
 int emulate_jnz (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, xed_uint64_t* new_rip)
@@ -1239,6 +1332,10 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 		case XED_ICLASS_CMP:
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_cmp(xedd, cpu, mc, mc_max_cnt);
+			break;
+		case XED_ICLASS_TEST:
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
+			emulate_test(xedd, cpu, mc, mc_max_cnt);
 			break;
 		case XED_ICLASS_JNZ:
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
