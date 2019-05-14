@@ -1093,12 +1093,12 @@ int emulate_jnz (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt,
 		case 0x75:
 			{
 				// 75 cb		JNE rel8
-				xed_int8_t imm;
-				imm = xed_decoded_inst_get_byte(xedd, 1);
-				printf("imm %2x\t", imm);
+				xed_int8_t disp;
+				disp = xed_decoded_inst_get_byte(xedd, 1);
+				printf("branch displacement %2x\t", disp);
 				if (0 == cpu->rflags.ZF)
 				{
-					*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + imm + 2;
+					*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + disp + 2;
 					return TE_JUMP;
 				}
 			}
@@ -1109,6 +1109,31 @@ int emulate_jnz (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt,
 			return -1;
 	}
 	return 0;
+}
+//-----------------------------------------------------------------------------//
+int emulate_jmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, xed_uint64_t* new_rip)
+{
+	xed_uint8_t op_byte;
+
+	op_byte = xed_decoded_inst_get_byte(xedd, 0);
+
+	switch (op_byte)
+	{
+		case 0xeb:
+			{
+				// EB cb		JMP rel8
+				xed_int8_t disp;
+				// xed_decoded_inst_get_branch_displacement(xedd);
+				disp = xed_decoded_inst_get_byte(xedd, 1);
+				printf("branch displacement %2x\t", disp);
+				*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + disp + 2;
+				return TE_JUMP;
+			}
+			break;
+		default:
+			printf("Unimplemented %x JMP\t", op_byte);
+			break;
+	}
 }
 //-----------------------------------------------------------------------------//
 int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
@@ -1198,6 +1223,21 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 				return -1;
 			}
 			break;
+		case XED_ICLASS_JMP:
+			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
+			ret = emulate_jmp(xedd, cpu, mc, mc_max_cnt, &new_rip);
+			if (TE_JUMP == ret)
+			{
+				cpu->gen_reg[REG_RIP].rrx = new_rip;
+				printf("JMP to 0x%lx\t", new_rip);
+				return 0;
+			}
+			else
+			{
+				printf("JMP error, stop!!!!!\n\n");
+				return -1;
+			}
+			break;
 		case XED_ICLASS_RET_NEAR:
 			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
 			printf("function return 0x%llx\n", cpu->gen_reg[REG_RAX].rrx);
@@ -1233,11 +1273,18 @@ int cpu_loop (cpu_t* cpu, int instruction_max_cnt, mc_t* mc, int mc_max_cnt /*, 
 	return ret;
 }
 //-----------------------------------------------------------------------------//
+// test case:
+// a = 3, b = 5, result = 8
+//
 int testfunc(int a, int b)
 {
 	return a + b;
 }
 
+// test case:
+//  a = 3, b = 5, result = 8
+//  a = 0, b = 5, result = 0
+//
 int testfunc2(int a, int b)
 {
 	if (0 == a)
