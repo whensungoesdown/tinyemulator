@@ -7,7 +7,7 @@ main.o: main.c
 	gcc -g -c main.c te.h
 
 testxed.o: testxed.c
-	gcc -g -c testxed.c -Ixed/include #xed/lib/libxed.a 
+	gcc -g -fPIC -c testxed.c -Ixed/include #xed/lib/libxed.a 
 
 libte.a: testxed.o xed/lib/libxed.a
 	ar rcs libte.a testxed.o xed/lib/libxed.a
