@@ -8,7 +8,8 @@
 #include <unistd.h>
 //-----------------------------------------------------------------------------//
 #define TE_SUCCESS		0x0
-#define TE_FUNCTION_RET		0x3
+#define TE_FUNCTION_RET		0x1001
+#define TE_JUMP			0x1002
 //-----------------------------------------------------------------------------//
 #define GENERAL_REGISTERS 16
 
@@ -1081,10 +1082,40 @@ int emulate_cmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 
 }
 //-----------------------------------------------------------------------------//
+int emulate_jnz (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, xed_uint64_t* new_rip)
+{
+	xed_uint8_t op_byte;
+	
+	op_byte = xed_decoded_inst_get_byte(xedd, 0);
+
+	switch (op_byte)
+	{
+		case 0x75:
+			{
+				// 75 cb		JNE rel8
+				xed_int8_t imm;
+				imm = xed_decoded_inst_get_byte(xedd, 1);
+				printf("imm %2x\t", imm);
+				if (0 == cpu->rflags.ZF)
+				{
+					*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + imm + 2;
+					return TE_JUMP;
+				}
+			}
+			break;
+		default:
+			// any jcc belong to ICLASS_JNZ
+			printf("Unimplemented %x JNZ\t", op_byte);
+			return -1;
+	}
+	return 0;
+}
+//-----------------------------------------------------------------------------//
 int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 {
 	int ret = 0;
 	int instuction_len = 0;
+	xed_uint64_t new_rip = 0;
 
 	xed_state_t dstate;
 	xed_chip_enum_t chip = XED_CHIP_INVALID;
@@ -1129,24 +1160,43 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 	switch (iclass)
 	{
 		case XED_ICLASS_MOV:
+			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_mov(xedd, cpu, mc, mc_max_cnt);
-			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
 			break;
 		case XED_ICLASS_PUSH:
+			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_push(xedd, cpu, mc, mc_max_cnt);
-			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
 			break;
 		case XED_ICLASS_POP:
+			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_pop(xedd, cpu, mc, mc_max_cnt);
-			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
 			break;
 		case XED_ICLASS_ADD:
+			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_add(xedd, cpu, mc, mc_max_cnt);
-			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
 			break;
 		case XED_ICLASS_CMP:
+			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_cmp(xedd, cpu, mc, mc_max_cnt);
-			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
+			break;
+		case XED_ICLASS_JNZ:
+			printf("\n\niclass %s\t", xed_iclass_enum_t2str(iclass));
+			ret = emulate_jnz(xedd, cpu, mc, mc_max_cnt, &new_rip);
+			if (TE_JUMP == ret)
+			{
+				cpu->gen_reg[REG_RIP].rrx = new_rip;
+				printf("JNZ to 0x%lx\t", new_rip);
+				return 0;
+			}
+			else if (TE_SUCCESS == ret)
+			{
+				break;
+			}
+			else
+			{
+				printf("JNZ error, stop!!!!!\n\n");
+				return -1;
+			}
 			break;
 		case XED_ICLASS_RET_NEAR:
 			printf("iclass %s\n\n", xed_iclass_enum_t2str(iclass));
@@ -1230,7 +1280,7 @@ int main(void)
 	g_cpu.gen_reg[REG_RBP].rrx = (Bit64u)stack + STACK_SIZE; // 
 
 	g_cpu.gen_reg[REG_RSI].rrx = 5;
-	g_cpu.gen_reg[REG_RDI].rrx = 3;
+	g_cpu.gen_reg[REG_RDI].rrx = 0;
 
 	// setup eip
 	g_cpu.gen_reg[REG_RIP].rrx = (Bit64u)testfunc2;
@@ -1239,7 +1289,7 @@ int main(void)
 
 	//printf("%d\n", testfunc(2,3));
 
-	cpu_loop(&g_cpu, 10, mc, MC_MAX);
+	cpu_loop(&g_cpu, 20, mc, MC_MAX);
 
 
 	free(stack);
