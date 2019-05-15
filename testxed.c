@@ -10,6 +10,7 @@
 #define TE_SUCCESS		0x0
 #define TE_FUNCTION_RET		0x1001
 #define TE_JUMP			0x1002
+#define TE_CALL_NEAR		0x1003
 //-----------------------------------------------------------------------------//
 #define GENERAL_REGISTERS 16
 
@@ -1648,6 +1649,31 @@ int emulate_jmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt,
 	return 0;
 }
 //-----------------------------------------------------------------------------//
+int emulate_call_near (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, xed_uint64_t* new_rip)
+{
+	xed_uint8_t op_byte;
+
+	op_byte = xed_decoded_inst_get_byte(xedd, 0);
+
+	switch (op_byte)
+	{
+		case 0xe8:
+			{
+				// E8 cw	CALL rel32
+				xed_int_t disp;
+				disp = xed_decoded_inst_get_branch_displacement(xedd);
+				printf("branch displacement %2x\t", disp);
+				*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + disp + 5;
+				return TE_CALL_NEAR;
+			}
+			break;
+		default:
+			break;
+	}
+
+	return 0;
+}
+//-----------------------------------------------------------------------------//
 int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 {
 	int ret = 0;
@@ -1777,11 +1803,25 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 				return -1;
 			}
 			break;
+		case XED_ICLASS_CALL_NEAR:
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
+			ret = emulate_call_near(xedd, cpu, mc, mc_max_cnt, &new_rip);
+			if (TE_CALL_NEAR == ret)
+			{
+				// need to setup call stack, but for now, ends here
+				printf("call 0x%lx\n\n", new_rip);
+				return TE_CALL_NEAR;
+			}
+			else
+			{
+				printf("CALL error, stop!!!!!\n\n");
+				return -1;
+			}
+			break;
 		case XED_ICLASS_RET_NEAR:
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			printf("function return 0x%llx\n", cpu->gen_reg[REG_RAX].rrx);
 			return TE_FUNCTION_RET;
-
 		default:
 			printf("Unimplemented iclass %s\n", xed_iclass_enum_t2str(iclass));
 			break;
