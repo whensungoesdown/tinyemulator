@@ -28,6 +28,7 @@ int testfunc2 (int a, int b)
 int testfunc3 (int a, int b)
 {
 	int tmp = 5;
+	char buff[32] = {0};
 
 	a = 3;
 	b = 4;
@@ -39,9 +40,9 @@ int main(void)
 {
 	printf("main\n");
 
-	printf("%d\n", testfunc(5, 3));
+	printf("%d\n", testfunc2(0, 3));
 
-	te_function_emulate(20, testfunc, 5, 3, 0, 0);
+	te_function_emulate(20, testfunc2, 0, 3, 0, 0);
 
 	return 0;
 }
