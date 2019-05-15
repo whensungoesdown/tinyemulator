@@ -241,7 +241,7 @@ xed_uint32_t get_rm32 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t
 {
 	xed_int64_t address = 0;
 	xed_int64_t disp = 0;
-	xed_int32_t ret_value = 0;
+	xed_uint32_t ret_value = 0;
 
 	switch (modrm.mod)
 	{
@@ -364,7 +364,7 @@ xed_uint64_t get_rm64 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t
 {
 	xed_uint64_t address = 0;
 	xed_int64_t disp = 0;
-	xed_int64_t ret_value = 0;
+	xed_uint64_t ret_value = 0;
 
 	switch (modrm.mod)
 	{
@@ -480,6 +480,8 @@ xed_uint64_t get_rm64 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t
 			}
 			break;
 	}
+
+	return ret_value;
 }
 //-----------------------------------------------------------------------------//
 xed_uint64_t get_r64 (cpu_t* cpu, modrm_t modrm)
@@ -1094,8 +1096,6 @@ int emulate_mov (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 	xed_uint8_t op_byte;
 	xed_uint_t np;
 	const xed_operand_values_t* ov;
-	int size = 1;
-
 
 	np = xed_decoded_inst_get_nprefixes(xedd);
 	op_byte = xed_decoded_inst_get_byte(xedd, np);
@@ -1228,7 +1228,6 @@ int emulate_mov (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 				// REX.W + 8B/r		MOV r64, r/m64
 				//
 				modrm_t modrm;
-				xed_reg_enum_t r0 = xed_decoded_inst_get_reg(xedd, XED_OPERAND_REG0);
 
 				modrm.byte = xed_decoded_inst_get_modrm(xedd);
 				printf("8B MOV ModR/M %2x\t", modrm.byte);
@@ -1314,12 +1313,12 @@ int emulate_add (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 {
 	xed_uint8_t op_byte;
 	xed_uint_t np;
-	const xed_operand_values_t* ov;
+	//const xed_operand_values_t* ov;
 	int i = 0;
 
 	np = xed_decoded_inst_get_nprefixes(xedd);
 	op_byte = xed_decoded_inst_get_byte(xedd, np);
-	ov = xed_decoded_inst_operands_const(xedd);
+	//ov = xed_decoded_inst_operands_const(xedd);
 
 	if (0 != np) 
 	{
@@ -1378,6 +1377,66 @@ int emulate_add (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 			break;
 		default:
 			printf("Unimplemented %x ADD\t", op_byte);
+			break;
+	}
+
+	return 0;
+}
+//-----------------------------------------------------------------------------//
+int emulate_sub (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
+{
+	xed_uint8_t op_byte;
+	xed_uint_t np;
+	const xed_operand_values_t* ov;
+	int i = 0;
+
+	np = xed_decoded_inst_get_nprefixes(xedd);
+	op_byte = xed_decoded_inst_get_byte(xedd, np);
+	ov = xed_decoded_inst_operands_const(xedd);
+
+	if (0 != np)
+	{
+		printf("PREFIX");
+		for (i = 0; i < np; i++) {
+			printf(" %2x", xed_decoded_inst_get_byte(xedd, i));
+		}
+		printf("\t");
+	}
+
+	switch (op_byte)
+	{
+		case 0x83:
+			{
+				// 85 /5 ib		SUB r/m32, imm8
+				// REX.W + 85 /5 ib	SUB r/m64, imm8
+				//
+				modrm_t modrm;
+
+				modrm.byte = xed_decoded_inst_get_modrm(xedd);
+				printf("85 SUB ModR/M %2x\t", modrm.byte);
+				printf("mod 0x%x, reg 0x%x, rm 0x%x\t", modrm.mod, modrm.reg, modrm.rm);
+
+				if (xed_operand_values_has_rexw_prefix (ov))
+				{
+					// REX.W + 85 /5 ib	SUB r/m64, imm8
+					xed_int64_t value;
+					xed_int8_t imm;
+
+					value = get_rm64(xedd, cpu, modrm, mc, mc_max_cnt);
+					imm = xed_decoded_inst_get_signed_immediate(xedd);
+					printf("imm:0x%x\t", imm);
+					value -= imm;
+					set_rm64(xedd, cpu, modrm, value, mc, mc_max_cnt);
+				}
+				else
+				{
+					// 85 /5 ib		SUB r/m32, imm8
+					printf("Unimplemented SUB r/m32, imm8\t");
+				}
+			}
+			break;
+		default:
+			printf("Unimplemented %x SUB\t", op_byte);
 			break;
 	}
 
@@ -1585,6 +1644,8 @@ int emulate_jmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt,
 			printf("Unimplemented %x JMP\t", op_byte);
 			break;
 	}
+
+	return 0;
 }
 //-----------------------------------------------------------------------------//
 int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
@@ -1650,6 +1711,10 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 		case XED_ICLASS_ADD:
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_add(xedd, cpu, mc, mc_max_cnt);
+			break;
+		case XED_ICLASS_SUB:
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
+			emulate_sub(xedd, cpu, mc, mc_max_cnt);
 			break;
 		case XED_ICLASS_CMP:
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
