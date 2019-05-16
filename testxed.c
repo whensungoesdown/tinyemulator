@@ -8,9 +8,10 @@
 #include <unistd.h>
 //-----------------------------------------------------------------------------//
 #define TE_SUCCESS		0x0
-#define TE_FUNCTION_RET		0x1001
+#define TE_EMULATION_END	0x8001
 #define TE_JUMP			0x1002
-#define TE_CALL_NEAR		0x1003
+#define TE_JMP_REL32		0x1003
+#define TE_CALL_NEAR		0x1004
 //-----------------------------------------------------------------------------//
 #define GENERAL_REGISTERS 16
 
@@ -154,6 +155,58 @@ int isValidOrNullPtr(const void*p, int len) {
 	return !p||isValidPtr(p, len);
 }
 //-----------------------------------------------------------------------------//
+int try_read_memory8 (xed_uint64_t address, xed_uint8_t* pret_value, mc_t* mc, int mc_max_cnt)
+{
+	// first check mc
+	// if not there, read the real memory within try catch
+	int i = 0;
+
+	for (i = 0; i < mc_max_cnt; i++)
+	{
+		if (address == mc->address)
+		{
+			*pret_value = mc->value;
+			return 0;
+		}
+	}
+
+	if (isValidPtr((void*)address, 4))
+	{
+		*pret_value = *(xed_uint8_t*)address;
+	}
+	else
+	{
+		return -1;
+	}
+	return 0;
+}
+//-----------------------------------------------------------------------------//
+int try_read_memory16 (xed_uint64_t address, xed_uint16_t* pret_value, mc_t* mc, int mc_max_cnt)
+{
+	// first check mc
+	// if not there, read the real memory within try catch
+	int i = 0;
+
+	for (i = 0; i < mc_max_cnt; i++)
+	{
+		if (address == mc->address)
+		{
+			*pret_value = mc->value;
+			return 0;
+		}
+	}
+
+	if (isValidPtr((void*)address, 4))
+	{
+		*pret_value = *(xed_uint16_t*)address;
+	}
+	else
+	{
+		return -1;
+	}
+	return 0;
+}
+//-----------------------------------------------------------------------------//	
 int try_read_memory32 (xed_uint64_t address, xed_uint32_t* pret_value, mc_t* mc, int mc_max_cnt)
 {
 	// first check mc
@@ -236,6 +289,253 @@ xed_uint32_t get_r32 (cpu_t* cpu, modrm_t modrm)
 			return cpu->gen_reg[REG_RDI].dword.erx;
 	}
 
+}
+//-----------------------------------------------------------------------------//
+xed_uint8_t get_rm8 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t* mc, int mc_max_cnt)
+{
+	xed_int64_t address = 0;
+	xed_int64_t disp = 0;
+	xed_uint8_t ret_value = 0;
+
+	switch (modrm.mod)
+	{
+		case 0:
+		case 1:
+		case 2:
+			{
+				if (xed_operand_values_has_memory_displacement(xedd))
+				{
+					xed_uint_t disp_bits =
+						xed_decoded_inst_get_memory_displacement_width(xedd, 0);
+					if (disp_bits)
+					{
+						printf("DISPLACEMENT_BYTES= %u ", disp_bits);
+						disp = xed_decoded_inst_get_memory_displacement(xedd, 0);
+						printf("0x" XED_FMT_LX16 " base10=" XED_FMT_LD "\t", disp, disp);
+					}
+				}
+
+				switch (modrm.rm)
+				{
+					case 0:
+						address = cpu->gen_reg[REG_RAX].rrx + disp;
+						break;
+					case 1:
+						address = cpu->gen_reg[REG_RCX].rrx + disp;
+						break;
+					case 2:
+						address = cpu->gen_reg[REG_RDX].rrx + disp;
+						break;
+					case 3:
+						address = cpu->gen_reg[REG_RBX].rrx + disp;
+						break;
+					case 4:
+						printf("SIB unimplemented!!!!!!!!!!!\n");
+						break;
+					case 5:
+						if (0 == modrm.mod)
+						{
+							printf("mod 0, RM 101 SIB unimplemented!!!!!!!!!!!\n");
+						}
+						else
+						{
+							address = cpu->gen_reg[REG_RBP].rrx + disp;
+						}
+						break;
+					case 6:
+						address = cpu->gen_reg[REG_RSI].rrx + disp;
+						break;
+					case 7: 
+						address = cpu->gen_reg[REG_RDI].rrx + disp;
+						break;
+				}
+
+				// if it's on the stack buffer, overwrite directly, no mc needed
+				if ((address >= (xed_uint64_t)cpu->stack_buf) && (address <= (xed_uint64_t)cpu->stack_buf + cpu->stack_buf_len))
+				{
+					ret_value =  *(xed_uint8_t*)address;
+				}
+				else
+				{
+					int ret = 0;
+					// wait for testcase
+					printf("Read memory outside of current stack, address 0x%lx\t", address);
+					ret = try_read_memory8(address, &ret_value, mc, mc_max_cnt);
+					if (-1 == ret)
+					{
+						printf("address invalid, emulated program should crash or throw sigfault\t");
+					}
+				}
+				printf("address: 0x%lx value: 0x%x\t", address, ret_value);
+			}
+			break;
+		case 3:
+			{
+				switch (modrm.rm)
+				{
+					case 0:
+						ret_value = cpu->gen_reg[REG_RAX].word.byte.rl;
+						printf("AL: 0x%x\t", ret_value);
+						break;
+					case 1:
+						ret_value = cpu->gen_reg[REG_RCX].word.byte.rl;
+						printf("CL: 0x%x\t", ret_value);
+						break;
+					case 2:
+						ret_value = cpu->gen_reg[REG_RDX].word.byte.rl;
+						printf("DL: 0x%x\t", ret_value);
+						break;
+					case 3:
+						ret_value = cpu->gen_reg[REG_RBX].word.byte.rl;
+						printf("BL: 0x%x\t", ret_value);
+						break;
+					case 4: // AH
+						ret_value = cpu->gen_reg[REG_RAX].word.byte.rh;
+						printf("AH: 0x%x\t", ret_value);
+						break;
+					case 5: // CH
+						ret_value = cpu->gen_reg[REG_RCX].word.byte.rh;
+						printf("CH: 0x%x\t", ret_value);
+						break;
+					case 6: // DH
+						ret_value = cpu->gen_reg[REG_RDX].word.byte.rh;
+						printf("DH: 0x%x\t", ret_value);
+						break;
+					case 7: // BH
+						ret_value = cpu->gen_reg[REG_RBX].word.byte.rh;
+						printf("BH: 0x%x\t", ret_value);
+						break;
+				}
+			}
+			break;
+	}
+
+
+	return ret_value;
+
+}
+//-----------------------------------------------------------------------------//
+xed_uint16_t get_rm16 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t* mc, int mc_max_cnt)
+{
+	xed_int64_t address = 0;
+	xed_int64_t disp = 0;
+	xed_uint16_t ret_value = 0;
+
+	switch (modrm.mod)
+	{
+		case 0:
+		case 1:
+		case 2:
+			{
+				if (xed_operand_values_has_memory_displacement(xedd))
+				{
+					xed_uint_t disp_bits =
+						xed_decoded_inst_get_memory_displacement_width(xedd, 0);
+					if (disp_bits)
+					{
+						printf("DISPLACEMENT_BYTES= %u ", disp_bits);
+						disp = xed_decoded_inst_get_memory_displacement(xedd, 0);
+						printf("0x" XED_FMT_LX16 " base10=" XED_FMT_LD "\t", disp, disp);
+					}
+				}
+
+				switch (modrm.rm)
+				{
+					case 0:
+						address = cpu->gen_reg[REG_RAX].rrx + disp;
+						break;
+					case 1:
+						address = cpu->gen_reg[REG_RCX].rrx + disp;
+						break;
+					case 2:
+						address = cpu->gen_reg[REG_RDX].rrx + disp;
+						break;
+					case 3:
+						address = cpu->gen_reg[REG_RBX].rrx + disp;
+						break;
+					case 4:
+						printf("SIB unimplemented!!!!!!!!!!!\n");
+						break;
+					case 5:
+						if (0 == modrm.mod)
+						{
+							printf("mod 0, RM 101 SIB unimplemented!!!!!!!!!!!\n");
+						}
+						else
+						{
+							address = cpu->gen_reg[REG_RBP].rrx + disp;
+						}
+						break;
+					case 6:
+						address = cpu->gen_reg[REG_RSI].rrx + disp;
+						break;
+					case 7: 
+						address = cpu->gen_reg[REG_RDI].rrx + disp;
+						break;
+				}
+
+				// if it's on the stack buffer, overwrite directly, no mc needed
+				if ((address >= (xed_uint64_t)cpu->stack_buf) && (address <= (xed_uint64_t)cpu->stack_buf + cpu->stack_buf_len))
+				{
+					ret_value =  *(xed_uint16_t*)address;
+				}
+				else
+				{
+					int ret = 0;
+					// wait for testcase
+					printf("Read memory outside of current stack, address 0x%lx\t", address);
+					ret = try_read_memory16(address, &ret_value, mc, mc_max_cnt);
+					if (-1 == ret)
+					{
+						printf("address invalid, emulated program should crash or throw sigfault\t");
+					}
+				}
+				printf("address: 0x%lx value: 0x%x\t", address, ret_value);
+			}
+			break;
+		case 3:
+			{
+				switch (modrm.rm)
+				{
+					case 0:
+						ret_value = cpu->gen_reg[REG_RAX].word.rx;
+						printf("AX: 0x%x\t", ret_value);
+						break;
+					case 1:
+						ret_value = cpu->gen_reg[REG_RCX].word.rx;
+						printf("CX: 0x%x\t", ret_value);
+						break;
+					case 2:
+						ret_value = cpu->gen_reg[REG_RDX].word.rx;
+						printf("DX: 0x%x\t", ret_value);
+						break;
+					case 3:
+						ret_value = cpu->gen_reg[REG_RBX].word.rx;
+						printf("BX: 0x%x\t", ret_value);
+						break;
+					case 4: 
+						ret_value = cpu->gen_reg[REG_RSP].word.rx;
+						printf("SP: 0x%x\t", ret_value);
+						break;
+					case 5: 
+						ret_value = cpu->gen_reg[REG_RBP].word.rx;
+						printf("BP: 0x%x\t", ret_value);
+						break;
+					case 6: 
+						ret_value = cpu->gen_reg[REG_RSI].word.rx;
+						printf("SI: 0x%x\t", ret_value);
+						break;
+					case 7:
+						ret_value = cpu->gen_reg[REG_RDI].word.rx;
+						printf("DI: 0x%x\t", ret_value);
+						break;
+				}
+			}
+			break;
+	}
+
+
+	return ret_value;
 }
 //-----------------------------------------------------------------------------//
 xed_uint32_t get_rm32 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t* mc, int mc_max_cnt)
@@ -1310,6 +1610,70 @@ int emulate_mov (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 	return 0;
 }
 //-----------------------------------------------------------------------------//
+int emulate_movzx (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
+{
+	xed_uint8_t op_byte;
+	xed_uint8_t op_byte2;
+	xed_uint_t np;
+	int i = 0;
+
+	np = xed_decoded_inst_get_nprefixes(xedd);
+	op_byte = xed_decoded_inst_get_byte(xedd, np);
+	op_byte2 = xed_decoded_inst_get_byte(xedd, np + 1);
+	
+	if (0 != np) 
+	{
+		printf("PREFIX");
+		for (i = 0; i < np; i++) {
+			printf(" %2x", xed_decoded_inst_get_byte(xedd, i));
+		}
+		printf("\t");
+		printf("Unimplemented\t");
+		return 0;
+	}
+
+	switch (op_byte2)
+	{
+		case 0xB6:
+			{
+				// 0F B6 /r		MOVZX r32, r/m8
+				// REX.W 0F B6 /r	MOVZX r64, r/m8
+				//
+				modrm_t modrm;
+				xed_uint8_t value;
+				modrm.byte = xed_decoded_inst_get_modrm(xedd);
+				printf("0F B6 MOVZX, ModR/M %2x\t", modrm.byte);
+				printf("mod 0x%x, reg 0x%x, rm 0x%x\t", modrm.mod, modrm.reg, modrm.rm);
+
+				value = get_rm8(xedd, cpu, modrm, mc, mc_max_cnt);
+				set_r32(cpu, modrm, (xed_uint32_t)value);
+			}
+			break;
+		case 0xB7:
+			{
+				// 0F B7 /r		MOVZX r32, r/m16
+				// REX.W 0F B7 /r	MOVZX r64, r/m16
+				//
+				modrm_t modrm;
+				xed_uint16_t value;
+				modrm.byte = xed_decoded_inst_get_modrm(xedd);
+				printf("0F B6 MOVZX, ModR/M %2x\t", modrm.byte);
+				printf("mod 0x%x, reg 0x%x, rm 0x%x\t", modrm.mod, modrm.reg, modrm.rm);
+
+				value = get_rm16(xedd, cpu, modrm, mc, mc_max_cnt);
+				set_r32(cpu, modrm, (xed_uint32_t)value);
+			}
+			break;
+		default:
+			printf("Unimplemented MOVZX %2x %2x\t", op_byte, op_byte2);
+			break;
+	}
+
+
+
+	return 0;
+}
+//-----------------------------------------------------------------------------//
 int emulate_add (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 {
 	xed_uint8_t op_byte;
@@ -1641,6 +2005,16 @@ int emulate_jmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt,
 				return TE_JUMP;
 			}
 			break;
+		case 0xe9:
+			{
+				// E9 cb		JMP rel32
+				xed_int32_t disp;
+				disp = xed_decoded_inst_get_branch_displacement(xedd);
+				printf("branch displacement 0x%x\t", disp);
+				*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + disp + 5;
+				return TE_JMP_REL32;
+
+			}
 		default:
 			printf("Unimplemented %x JMP\t", op_byte);
 			break;
@@ -1662,7 +2036,7 @@ int emulate_call_near (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_ma
 				// E8 cw	CALL rel32
 				xed_int_t disp;
 				disp = xed_decoded_inst_get_branch_displacement(xedd);
-				printf("branch displacement %2x\t", disp);
+				printf("branch displacement 0x%x\t", disp);
 				*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + disp + 5;
 				return TE_CALL_NEAR;
 			}
@@ -1725,6 +2099,10 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 		case XED_ICLASS_MOV:
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_mov(xedd, cpu, mc, mc_max_cnt);
+			break;
+		case XED_ICLASS_MOVZX:
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
+			emulate_movzx(xedd, cpu, mc, mc_max_cnt);
 			break;
 		case XED_ICLASS_PUSH:
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
@@ -1797,6 +2175,11 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 				printf("JMP to 0x%lx\t", new_rip);
 				return 0;
 			}
+			else if (TE_JMP_REL32 == ret)
+			{
+				printf("jmp(rel32) 0x%lx\n\n", new_rip);
+				return TE_EMULATION_END;
+			}
 			else
 			{
 				printf("JMP error, stop!!!!!\n\n");
@@ -1809,8 +2192,8 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 			if (TE_CALL_NEAR == ret)
 			{
 				// need to setup call stack, but for now, ends here
-				printf("call 0x%lx\n\n", new_rip);
-				return TE_CALL_NEAR;
+				printf("call(rel32) 0x%lx\n\n", new_rip);
+				return TE_EMULATION_END;
 			}
 			else
 			{
@@ -1821,7 +2204,7 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 		case XED_ICLASS_RET_NEAR:
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			printf("function return 0x%llx\n", cpu->gen_reg[REG_RAX].rrx);
-			return TE_FUNCTION_RET;
+			return TE_EMULATION_END;
 		default:
 			printf("Unimplemented iclass %s\n", xed_iclass_enum_t2str(iclass));
 			break;
