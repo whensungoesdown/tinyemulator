@@ -1234,72 +1234,149 @@ int pop64 (cpu_t* cpu, xed_uint64_t* pvalue)
 int emulate_push (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 {
 	xed_uint8_t op_byte;
+	xed_uint8_t prefix;
 	xed_uint_t np;
 	np = xed_decoded_inst_get_nprefixes(xedd);
 	op_byte = xed_decoded_inst_get_byte(xedd, np);
+	int i = 0;
+	xed_bool_t extended_gpr = 0;
 
-
-	if (0x50 == (op_byte & 0xf8))
+	if (0 != np) 
 	{
-		int reg = op_byte & 0x7;
-		xed_reg_enum_t r0 = xed_decoded_inst_get_reg(xedd, XED_OPERAND_REG0);
-		xed_uint64_t value;
+		printf("PREFIX");
+		for (i = 0; i < np; i++) {
+			printf(" %2x", xed_decoded_inst_get_byte(xedd, i));
+		}
+		printf("\t");
+	}
 
-		printf("%2x PUSH %s\t", op_byte, xed_reg_enum_t2str(r0));
-		if (0 != np)
+	if (0 != np)
+	{
+		prefix = xed_decoded_inst_get_byte(xedd, 0);
+		// REX.B
+		if (0x41 == prefix)
 		{
-			printf("PREFIX PUSH unhandled!!!!!!!!!\t");
+			extended_gpr = 1;
+			printf("REX.B\t");
+		}
+		else
+		{
+			printf("Unimplemented PREFIX %2x!!!!!\t", prefix);
 			return 0;
 		}
-
-		switch (reg)
-		{
-			case 0:
-				value = cpu->gen_reg[REG_RAX].rrx;
-				push64(cpu, value);
-				printf("0x%lx\t", value);
-				break;
-			case 1:
-				value = cpu->gen_reg[REG_RCX].rrx;
-				push64(cpu, value);
-				printf("0x%lx\t", value);
-				break;
-			case 2:
-				value = cpu->gen_reg[REG_RDX].rrx;
-				push64(cpu, value);
-				printf("0x%lx\t", value);
-				break;
-			case 3:
-				value = cpu->gen_reg[REG_RBX].rrx;
-				push64(cpu, value);
-				printf("0x%lx\t", value);
-				break;
-			case 4:
-				value = cpu->gen_reg[REG_RSP].rrx;
-				push64(cpu, value);
-				printf("0x%lx\t", value);
-				break;
-			case 5:
-				value = cpu->gen_reg[REG_RBP].rrx;
-				push64(cpu, value);
-				printf("0x%lx\t", value);
-				break;
-			case 6:
-				value = cpu->gen_reg[REG_RSI].rrx;
-				push64(cpu, value);
-				printf("0x%lx\t", value);
-				break;
-			case 7:
-				value = cpu->gen_reg[REG_RDI].rrx;
-				push64(cpu, value);
-				printf("0x%lx\t", value);
-				break;
-		}
-
 	}
-	else
+
+	switch (op_byte & 0xf8)
 	{
-		printf("%2x PUSH unhandled!!!!!!!!!\t", op_byte);
+		case 0x50:
+			{
+				int reg = op_byte & 0x7;
+				xed_reg_enum_t r0 = xed_decoded_inst_get_reg(xedd, XED_OPERAND_REG0);
+				xed_uint64_t value;
+
+				printf("%2x PUSH %s\t", op_byte, xed_reg_enum_t2str(r0));
+
+				if (extended_gpr)
+				{
+					switch (reg)
+					{
+						case 0:
+							value = cpu->gen_reg[REG_R8].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 1:
+							value = cpu->gen_reg[REG_R9].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 2:
+							value = cpu->gen_reg[REG_R10].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 3:
+							value = cpu->gen_reg[REG_R11].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 4:
+							value = cpu->gen_reg[REG_R12].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 5:
+							value = cpu->gen_reg[REG_R13].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 6:
+							value = cpu->gen_reg[REG_R14].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 7:
+							value = cpu->gen_reg[REG_R15].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+							
+					}
+				}
+				else
+				{
+
+					switch (reg)
+					{
+						case 0:
+							value = cpu->gen_reg[REG_RAX].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 1:
+							value = cpu->gen_reg[REG_RCX].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 2:
+							value = cpu->gen_reg[REG_RDX].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 3:
+							value = cpu->gen_reg[REG_RBX].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 4:
+							value = cpu->gen_reg[REG_RSP].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 5:
+							value = cpu->gen_reg[REG_RBP].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 6:
+							value = cpu->gen_reg[REG_RSI].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+						case 7:
+							value = cpu->gen_reg[REG_RDI].rrx;
+							push64(cpu, value);
+							printf("0x%lx\t", value);
+							break;
+					}
+				}
+
+			}
+
+			break;
+		default:
+			printf("%2x PUSH unhandled!!!!!!!!!\t", op_byte);
+			break;
 	}
 
 	return 0;
@@ -1335,7 +1412,7 @@ int emulate_pop (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 		xed_uint64_t value;
 
 		printf("%2x POP %s\t", op_byte, xed_reg_enum_t2str(r0));
-		
+
 		switch (reg)
 		{
 			case 0:
@@ -1620,7 +1697,7 @@ int emulate_movzx (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cn
 	np = xed_decoded_inst_get_nprefixes(xedd);
 	op_byte = xed_decoded_inst_get_byte(xedd, np);
 	op_byte2 = xed_decoded_inst_get_byte(xedd, np + 1);
-	
+
 	if (0 != np) 
 	{
 		printf("PREFIX");
@@ -1816,7 +1893,7 @@ int emulate_cmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 
 	np = xed_decoded_inst_get_nprefixes(xedd);
 	op_byte = xed_decoded_inst_get_byte(xedd, np);
-	
+
 	if (0 != np) 
 	{
 		printf("PREFIX");
@@ -1922,7 +1999,7 @@ int emulate_test (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt
 			break;
 	}
 
-	
+
 
 	return 0;
 }
@@ -1960,7 +2037,7 @@ int emulate_jz (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, 
 int emulate_jnz (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, xed_uint64_t* new_rip)
 {
 	xed_uint8_t op_byte;
-	
+
 	op_byte = xed_decoded_inst_get_byte(xedd, 0);
 
 	switch (op_byte)
