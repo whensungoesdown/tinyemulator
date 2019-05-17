@@ -661,6 +661,92 @@ xed_uint32_t get_rm32 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t
 	return ret_value;
 }
 //-----------------------------------------------------------------------------//
+xed_uint64_t get_m64 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm)
+{
+	xed_uint64_t address = 0;
+	xed_int64_t disp = 0;
+
+	switch (modrm.mod)
+	{
+		case 0:
+		case 1:
+		case 2:
+			{
+				if (xed_operand_values_has_memory_displacement(xedd))
+				{
+					xed_uint_t disp_bits =
+						xed_decoded_inst_get_memory_displacement_width(xedd, 0);
+					if (disp_bits)
+					{
+						printf("DISPLACEMENT_BYTES= %u ", disp_bits);
+						disp = xed_decoded_inst_get_memory_displacement(xedd, 0);
+						printf("0x" XED_FMT_LX16 " base10=" XED_FMT_LD "\t", disp, disp);
+					}
+				}
+
+				switch (modrm.rm)
+				{
+					case 0:
+						if (1 == modrm.mod)
+						{
+							printf("SIB Unimplemented!!!!!!!!!!!\n");
+							break;
+						}
+						address = cpu->gen_reg[REG_RAX].rrx + disp;
+						printf("RAX:0x%llx + disp:0x%lx\t", cpu->gen_reg[REG_RAX].rrx, disp);
+						break;
+					case 1:
+						address = cpu->gen_reg[REG_RCX].rrx + disp;
+						printf("RCX:0x%llx + disp:0x%lx\t", cpu->gen_reg[REG_RCX].rrx, disp);
+						break;
+					case 2:
+						address = cpu->gen_reg[REG_RDX].rrx + disp;
+						printf("RDX:0x%llx + disp:0x%lx\t", cpu->gen_reg[REG_RDX].rrx, disp);
+						break;
+					case 3:
+						address = cpu->gen_reg[REG_RBX].rrx + disp;
+						printf("RBX:0x%llx + disp:0x%lx\t", cpu->gen_reg[REG_RBX].rrx, disp);
+						break;
+					case 4:
+						printf("SIB Unimplemented!!!!!!!!!!!\n");
+						break;
+					case 5:
+						if (0 == modrm.mod)
+						{	// 2.2.1.6 RIP-Relative Addressing  64-bit mode
+							printf("mod 0, RM 101 SIB, RIP:0x%llx disp32:0x%lx\t", cpu->gen_reg[REG_RIP].rrx, disp);
+							address = cpu->gen_reg[REG_RIP].rrx + disp;
+						}
+						else
+						{
+							address = cpu->gen_reg[REG_RBP].rrx + disp;
+							printf("RBP:0x%llx + disp:0x%lx\t", cpu->gen_reg[REG_RBP].rrx, disp);
+						}
+						break;
+					case 6:
+						address = cpu->gen_reg[REG_RSI].rrx + disp;
+						printf("RSI:0x%llx + disp:0x%lx\t", cpu->gen_reg[REG_RSI].rrx, disp);
+						break;
+					case 7: 
+						address = cpu->gen_reg[REG_RDI].rrx + disp;
+						printf("RDI:0x%llx + disp:0x%lx\t", cpu->gen_reg[REG_RDI].rrx, disp);
+						break;
+				}
+
+				printf("Effective address: 0x%lx\t", address);
+
+			}
+			break;
+		case 3:
+			{
+				printf("ERROR !!!!! get_m64, effective address should not use this mod\t");
+				return 0;
+			}
+			break;
+	}
+
+	return address;
+}
+//-----------------------------------------------------------------------------//
 xed_uint64_t get_rm64 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t* mc, int mc_max_cnt)
 {
 	xed_uint64_t address = 0;
@@ -1751,6 +1837,53 @@ int emulate_movzx (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cn
 	return 0;
 }
 //-----------------------------------------------------------------------------//
+int emulate_lea (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
+{
+	xed_uint_t np;
+	int i = 0;
+	const xed_operand_values_t* ov;
+	modrm_t modrm;
+	xed_uint64_t value;
+
+
+	np = xed_decoded_inst_get_nprefixes(xedd);
+	ov = xed_decoded_inst_operands_const(xedd);
+
+	if (0 != np) 
+	{
+		printf("PREFIX");
+		for (i = 0; i < np; i++) {
+			printf(" %2x", xed_decoded_inst_get_byte(xedd, i));
+		}
+		printf("\t");
+	}
+
+
+	// 8D /r		LEA r32, m
+	// REX.W 8D/r		LEA r64, m
+	//
+
+	// it only has opcode 8D, so no switch case needed
+	//
+	
+	modrm.byte = xed_decoded_inst_get_modrm(xedd);
+	printf("8D LEA, ModR/M %2x\t", modrm.byte);
+	printf("mod 0x%x, reg 0x%x, rm 0x%x\t", modrm.mod, modrm.reg, modrm.rm);
+
+	value = get_m64(xedd, cpu, modrm);
+
+	if (xed_operand_values_has_rexw_prefix (ov))
+	{
+		set_r64(cpu, modrm, value);
+	}
+	else
+	{
+		set_r32(cpu, modrm, (xed_uint32_t)value);
+	}
+
+	return 0;	
+}
+//-----------------------------------------------------------------------------//
 int emulate_add (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 {
 	xed_uint8_t op_byte;
@@ -1923,17 +2056,29 @@ int emulate_cmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 				value = get_rm32(xedd, cpu, modrm, mc, mc_max_cnt);
 				imm = xed_decoded_inst_get_signed_immediate(xedd);
 				printf("r/m32 value:0x%x, imm:0x%x\t", value, imm);
-				// CMP set SF PF ZF  todo:
+				// CMP set SF PF  todo:
+
 				if (0 == value - (xed_uint32_t)imm)
 				{
 					cpu->rflags.ZF = 1;
-				}
+				} 
 				else
 				{
 					cpu->rflags.ZF = 0;
 				}
+
+				if ((xed_int32_t)value < (xed_int32_t)imm)
+				{
+					cpu->rflags.CF = 1;
+				}
+				else
+				{
+					cpu->rflags.CF = 0;
+				}
+
 				//printf("ZF:%c\t", cpu->rflags.ZF? '1':'0');
 				printf("ZF:%d\t", cpu->rflags.ZF);
+				printf("CF:%d\t", cpu->rflags.CF);
 
 			}
 			break;
@@ -2063,6 +2208,36 @@ int emulate_jnz (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt,
 	return 0;
 }
 //-----------------------------------------------------------------------------//
+int emualte_jnbe (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, xed_uint64_t* new_rip)
+{
+	xed_uint8_t op_byte;
+
+	op_byte = xed_decoded_inst_get_byte(xedd, 0);
+
+	switch (op_byte)
+	{
+		case 0x77:
+			{
+				// 77 cb		JNBE rel8
+				xed_int8_t disp;
+				disp = xed_decoded_inst_get_byte(xedd, 1);
+				printf("branch displacement %2x\t", disp);
+				if (0 == cpu->rflags.ZF && 0 == cpu->rflags.CF)
+				{
+					*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + disp + 2;
+					return TE_JUMP;
+				}
+			}
+			break;
+		default:
+			// any jcc belong to ICLASS_JNZ
+			printf("Unimplemented %x JNBE\t", op_byte);
+			return -1;
+	}
+	return 0;
+
+}
+//-----------------------------------------------------------------------------//
 int emulate_jmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, xed_uint64_t* new_rip)
 {
 	xed_uint8_t op_byte;
@@ -2181,6 +2356,10 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_movzx(xedd, cpu, mc, mc_max_cnt);
 			break;
+		case XED_ICLASS_LEA:
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
+			emulate_lea(xedd, cpu, mc, mc_max_cnt);
+			break;
 		case XED_ICLASS_PUSH:
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_push(xedd, cpu, mc, mc_max_cnt);
@@ -2240,6 +2419,25 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 			else
 			{
 				printf("JNZ error, stop!!!!!\n\n");
+				return -1;
+			}
+			break;
+		case XED_ICLASS_JNBE:
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
+			ret = emualte_jnbe(xedd, cpu, mc, mc_max_cnt, &new_rip);
+			if (TE_JUMP == ret)
+			{
+				cpu->gen_reg[REG_RIP].rrx = new_rip;
+				printf("JNBE to 0x%lx\t", new_rip);
+				return 0;
+			}
+			else if (TE_SUCCESS == ret)
+			{
+				break;
+			}
+			else
+			{
+				printf("JNBE error, stop!!!!!\n\n");
 				return -1;
 			}
 			break;
@@ -2343,6 +2541,8 @@ int te_function_emulate (int inst_count, void* func, long long int  para0, long 
 	// setup parameters
 	g_cpu.gen_reg[REG_RSP].rrx = (Bit64u)stack + STACK_SIZE;
 	g_cpu.gen_reg[REG_RBP].rrx = (Bit64u)stack + STACK_SIZE; // 
+
+	printf("stack RSP:0x%llx RBP:0x%llx\n", g_cpu.gen_reg[REG_RSP].rrx, g_cpu.gen_reg[REG_RBP].rrx);
 
 	g_cpu.gen_reg[REG_RDI].rrx = para0;
 	g_cpu.gen_reg[REG_RSI].rrx = para1;
