@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <inttypes.h>
 //-----------------------------------------------------------------------------//
 #define TE_SUCCESS		0x0
 #define TE_EMULATION_END	0x8001
@@ -135,6 +136,20 @@ typedef struct {
 		Bit8u byte;
 	};
 } modrm_t;
+
+typedef struct
+{
+	union
+	{
+		struct
+		{
+			Bit8u base	:3;
+			Bit8u index	:3;
+			Bit8u scale	:2;
+		};
+		Bit8u byte;
+	};
+} sib_t;
 //-----------------------------------------------------------------------------//
 cpu_t g_cpu = {0};
 //-----------------------------------------------------------------------------//
@@ -259,6 +274,98 @@ int try_read_memory64 (xed_uint64_t address, xed_uint64_t* pret_value, mc_t* mc,
 	return 0;
 }
 //-----------------------------------------------------------------------------//
+xed_uint64_t get_sib (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm)
+{
+	xed_uint64_t ret_value;
+	sib_t sib;
+	int i = 0;
+	xed_uint8_t byte;
+	int found = 0;
+	xed_uint64_t base_value;
+	xed_uint64_t index_value;
+	xed_uint8_t scale_value;
+	xed_int64_t disp = 0;
+
+
+	for (i = 1; i < 15; i++)
+	{
+		byte = xed_decoded_inst_get_byte(xedd, i);
+		if (modrm.byte == byte)
+		{
+			// found modrm, next byte is sib
+			found = 1;
+			break;
+		}
+	}
+
+	if (!found)
+	{
+		printf("Error in get_sib!!!!!\n");
+		// throw exception
+		return -1;
+	}
+
+	sib.byte = xed_decoded_inst_get_byte(xedd, i + 1);
+	printf("get sib at byte %d\t", i + 1);
+
+	if (xed_operand_values_has_memory_displacement(xedd))
+	{
+		xed_uint_t disp_bits =
+			xed_decoded_inst_get_memory_displacement_width(xedd, 0);
+		if (disp_bits)
+		{
+			printf("DISPLACEMENT_BYTES= %u ", disp_bits);
+			disp = xed_decoded_inst_get_memory_displacement(xedd, 0);
+			printf("0x" XED_FMT_LX16 " base10=" XED_FMT_LD "\t", disp, disp);
+		}
+	}
+
+	printf("SCALE:%x, BASE:%x, INDEX:%x\t", sib.scale, sib.base, sib.index);
+
+
+	switch (sib.scale)
+	{
+		case 0:
+			scale_value = 1;
+			break;
+		case 1:
+			scale_value = 2;
+			break;
+		case 2:
+			scale_value = 4;
+			break;
+		case 3:
+			scale_value = 8;
+			break;
+	}
+
+	if (4 == sib.index) // rsp
+	{
+		printf("Error RSP not allowed in SIB\t");
+		return -1;
+	}
+	else
+	{
+		index_value = cpu->gen_reg[sib.index].rrx;
+	}
+
+	if (5 == sib.base && 0 == modrm.mod) // rbp
+	{
+		base_value = 0;
+	}
+	else
+	{
+		base_value = cpu->gen_reg[sib.base].rrx;
+	}
+
+
+	printf("INDEX * SCALE + BASE + DISP (%lx * %x + %lx + %lx)\t", index_value, scale_value, base_value, disp);
+	ret_value = index_value * scale_value + base_value + disp;
+
+	return ret_value;
+}
+//-----------------------------------------------------------------------------//
+
 xed_uint32_t get_r32 (cpu_t* cpu, modrm_t modrm)
 {
 	switch (modrm.reg)
@@ -577,7 +684,25 @@ xed_uint32_t get_rm32 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t
 						address = cpu->gen_reg[REG_RBX].rrx + disp;
 						break;
 					case 4:
-						printf("SIB unimplemented!!!!!!!!!!!\n");
+						{
+							// mod 00 rm 100    SIB
+							// mod 01 rm 100    SIB + disp8
+							// mod 02 rm 100    SIB + disp32	
+							xed_reg_enum_t base;
+							xed_reg_enum_t index;
+							xed_int_t scale;
+
+
+							base = xed_decoded_inst_get_base_reg(xedd, 0);
+							printf("BASE= %3s %d\t", xed_reg_enum_t2str(base), base - XED_REG_RAX);
+							index = xed_decoded_inst_get_index_reg(xedd, 0);
+							printf("INDEX= %3s %d\t", xed_reg_enum_t2str(index), index - XED_REG_RAX);
+							scale = xed_decoded_inst_get_scale(xedd, 0);
+							printf("SCALE= %d\t", scale);
+
+
+							address = get_sib(xedd, cpu, modrm);
+						}
 						break;
 					case 5:
 						if (0 == modrm.mod)
@@ -786,7 +911,25 @@ xed_uint64_t get_rm64 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t
 						address = cpu->gen_reg[REG_RBX].rrx + disp;
 						break;
 					case 4:
-						printf("SIB unimplemented!!!!!!!!!!!\n");
+						{	
+							// mod 00 rm 100    SIB
+							// mod 01 rm 100    SIB + disp8
+							// mod 02 rm 100    SIB + disp32	
+							xed_reg_enum_t base;
+							xed_reg_enum_t index;
+							xed_int_t scale;
+
+
+							base = xed_decoded_inst_get_base_reg(xedd, 0);
+							printf("BASE= %3s %d\t", xed_reg_enum_t2str(base), base - XED_REG_RAX);
+							index = xed_decoded_inst_get_index_reg(xedd, 0);
+							printf("INDEX= %3s %d\t", xed_reg_enum_t2str(index), index - XED_REG_RAX);
+							scale = xed_decoded_inst_get_scale(xedd, 0);
+							printf("SCALE= %d\t", scale);
+
+
+							address = get_sib(xedd, cpu, modrm);
+						}
 						break;
 					case 5:
 						if (0 == modrm.mod)
@@ -1238,39 +1381,41 @@ int set_r32 (cpu_t* cpu, modrm_t modrm, xed_uint32_t value)
 //-----------------------------------------------------------------------------//
 int set_r64 (cpu_t* cpu, modrm_t modrm, xed_uint64_t value)
 {
+	// looks lik %lx and PRIx64 both can print uint64_t
 	switch (modrm.reg)
 	{
 		case 0:
 			cpu->gen_reg[REG_RAX].rrx = value;
-			printf("RAX<-0x%lx\t", value);
+			//printf("RAX<= 0x%"PRIx64"\t", value);
+			printf("RAX<= 0x%lx\t", value);
 			break;	
 		case 1:
 			cpu->gen_reg[REG_RCX].rrx = value;
-			printf("RCX<-0x%lx\t", value);
+			printf("RCX<= 0x%"PRIx64"\t", value);
 			break;	
 		case 2:
 			cpu->gen_reg[REG_RDX].rrx = value;
-			printf("RDX<-0x%lx\t", value);
+			printf("RDX<= 0x%"PRIx64"\t", value);
 			break;	
 		case 3:
 			cpu->gen_reg[REG_RBX].rrx = value;
-			printf("RBX<-0x%lx\t", value);
+			printf("RBX<= 0x%"PRIx64"\t", value);
 			break;	
 		case 4:
 			cpu->gen_reg[REG_RSP].rrx = value;
-			printf("RSP<-0x%lx\t", value);
+			printf("RSP<= 0x%"PRIx64"\t", value);
 			break;	
 		case 5:
 			cpu->gen_reg[REG_RBP].rrx = value;
-			printf("RBP<-0x%lx\t", value);
+			printf("RBP<= 0x%"PRIx64"\t", value);
 			break;	
 		case 6:
 			cpu->gen_reg[REG_RSI].rrx = value;
-			printf("RSI<-0x%lx\t", value);
+			printf("RSI<= 0x%"PRIx64"\t", value);
 			break;	
 		case 7:
 			cpu->gen_reg[REG_RDI].rrx = value;
-			printf("RDI<-0x%lx\t", value);
+			printf("RDI<= 0x%"PRIx64"\t", value);
 			break;	
 	}
 
@@ -1406,7 +1551,7 @@ int emulate_push (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt
 							push64(cpu, value);
 							printf("0x%lx\t", value);
 							break;
-							
+
 					}
 				}
 				else
@@ -1837,6 +1982,62 @@ int emulate_movzx (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cn
 	return 0;
 }
 //-----------------------------------------------------------------------------//
+int emulate_movsxd (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
+{
+	xed_uint8_t op_byte;
+	xed_uint_t np;
+	int i = 0;
+	const xed_operand_values_t* ov;
+	xed_uint32_t value32;
+	xed_uint64_t value64;
+	modrm_t modrm;
+
+	np = xed_decoded_inst_get_nprefixes(xedd);
+	op_byte = xed_decoded_inst_get_byte(xedd, np);
+	ov = xed_decoded_inst_operands_const(xedd);
+
+	if (0 != np) 
+	{
+		printf("PREFIX");
+		for (i = 0; i < np; i++) {
+			printf(" %2x", xed_decoded_inst_get_byte(xedd, i));
+		}
+		printf("\t");
+	}
+
+	// REX.W + 63 /r		MOVSXD r64, r/m32
+
+	// MOVSXD only have one opcode 63, and it must come with REX.W
+	if (!xed_operand_values_has_rexw_prefix (ov))
+	{
+		printf("Weired MOVXSD has no REX.W, Unimplemented!!!!!\t ");
+		return -1;
+	}
+	if (0x63 != op_byte)
+	{
+		printf("Weired MOVXSD opcode is not 0x63, Unimplemented!!!!!\t ");
+		return -1;
+	}
+
+	modrm.byte = xed_decoded_inst_get_modrm(xedd);
+	printf("48 63 REX.W MOVSXD, ModR/M %2x\t", modrm.byte);
+	printf("mod 0x%x, reg 0x%x, rm 0x%x\t", modrm.mod, modrm.reg, modrm.rm);
+	value32 = get_rm32(xedd, cpu, modrm, mc, mc_max_cnt);
+	if ((xed_int32_t)value32 < 0)
+	{
+		// test sign
+		value64 = 0xFFFFFFFF00000000 + value32;
+	}
+	else
+	{
+		value64 = (xed_uint64_t)value32;
+	}
+
+	set_r64(cpu, modrm, value64);	
+
+	return 0;
+}
+//-----------------------------------------------------------------------------//
 int emulate_lea (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 {
 	xed_uint_t np;
@@ -1844,7 +2045,7 @@ int emulate_lea (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 	const xed_operand_values_t* ov;
 	modrm_t modrm;
 	xed_uint64_t value;
-
+	xed_uint32_t inst_len = 0;
 
 	np = xed_decoded_inst_get_nprefixes(xedd);
 	ov = xed_decoded_inst_operands_const(xedd);
@@ -1865,16 +2066,24 @@ int emulate_lea (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 
 	// it only has opcode 8D, so no switch case needed
 	//
-	
+
 	modrm.byte = xed_decoded_inst_get_modrm(xedd);
 	printf("8D LEA, ModR/M %2x\t", modrm.byte);
 	printf("mod 0x%x, reg 0x%x, rm 0x%x\t", modrm.mod, modrm.reg, modrm.rm);
 
 	value = get_m64(xedd, cpu, modrm);
+	inst_len = xed_decoded_inst_get_length(xedd);
+
+	printf("instruction length:%d\t", inst_len);
+	// add instruction length to RIP, more RIP to next instruction, 
+	// LEA instruction e.g. 48 8d 0d 9c 58 04 00
+
+
+	value += inst_len;
 
 	if (xed_operand_values_has_rexw_prefix (ov))
 	{
-		set_r64(cpu, modrm, value);
+		set_r64(cpu, modrm, value); 
 	}
 	else
 	{
@@ -2355,6 +2564,10 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 		case XED_ICLASS_MOVZX:
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_movzx(xedd, cpu, mc, mc_max_cnt);
+			break;
+		case XED_ICLASS_MOVSXD:
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
+			emulate_movsxd(xedd, cpu, mc, mc_max_cnt);
 			break;
 		case XED_ICLASS_LEA:
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
