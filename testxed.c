@@ -12,7 +12,8 @@
 #define TE_EMULATION_END	0x8001
 #define TE_JUMP			0x1002
 #define TE_JMP_REL32		0x1003
-#define TE_CALL_NEAR		0x1004
+#define TE_JMP_RM64		0x1004
+#define TE_CALL_NEAR		0x1005
 //-----------------------------------------------------------------------------//
 #define GENERAL_REGISTERS 16
 
@@ -2097,12 +2098,12 @@ int emulate_add (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 {
 	xed_uint8_t op_byte;
 	xed_uint_t np;
-	//const xed_operand_values_t* ov;
+	const xed_operand_values_t* ov;
 	int i = 0;
 
 	np = xed_decoded_inst_get_nprefixes(xedd);
 	op_byte = xed_decoded_inst_get_byte(xedd, np);
-	//ov = xed_decoded_inst_operands_const(xedd);
+	ov = xed_decoded_inst_operands_const(xedd);
 
 	if (0 != np) 
 	{
@@ -2111,8 +2112,6 @@ int emulate_add (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 			printf(" %2x", xed_decoded_inst_get_byte(xedd, i));
 		}
 		printf("\t");
-		printf("Unimplemented!!!!!\t");
-		return 0;
 	}
 
 	switch (op_byte)
@@ -2138,9 +2137,17 @@ int emulate_add (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 						break;
 					case 3:
 						{
-							if (0 != np)
+							if (xed_operand_values_has_rexw_prefix (ov))
 							{
-								printf("Unimplemented!!!!! PREFIX 01 ADD mod 3\t");
+								// REX.W + 01 /r 	ADD r/m64, r64
+								// todo: set OF CF
+								xed_uint64_t value_src, value_dst;
+								xed_uint64_t value_sum;
+
+								value_src = get_r64(cpu, modrm);
+								value_dst = get_rm64(xedd, cpu, modrm, mc, mc_max_cnt);
+								value_sum = value_src + value_dst;
+								set_rm64(xedd, cpu, modrm, value_sum, mc, mc_max_cnt);
 							}
 							else
 							{
@@ -2450,8 +2457,10 @@ int emualte_jnbe (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt
 int emulate_jmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, xed_uint64_t* new_rip)
 {
 	xed_uint8_t op_byte;
+	modrm_t modrm;
 
 	op_byte = xed_decoded_inst_get_byte(xedd, 0);
+	modrm.byte = xed_decoded_inst_get_modrm(xedd);
 
 	switch (op_byte)
 	{
@@ -2476,6 +2485,13 @@ int emulate_jmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt,
 				return TE_JMP_REL32;
 
 			}
+		case 0xff:
+			{
+				// FF /4		JMP r/m64
+				*new_rip = get_rm64(xedd, cpu, modrm, mc, mc_max_cnt);
+				return TE_JMP_RM64;
+			}
+			break;
 		default:
 			printf("Unimplemented %x JMP\t", op_byte);
 			break;
@@ -2665,7 +2681,12 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 			}
 			else if (TE_JMP_REL32 == ret)
 			{
-				printf("jmp(rel32) 0x%lx\n\n", new_rip);
+				printf("\nEMULATION END: jmp rel32 0x%lx\n\n", new_rip);
+				return TE_EMULATION_END;
+			}
+			else if (TE_JMP_RM64 == ret)
+			{
+				printf("\nEMULATION END: jmp r/m64 0x%lx\n\n", new_rip);
 				return TE_EMULATION_END;
 			}
 			else
