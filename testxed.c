@@ -2282,6 +2282,54 @@ int emulate_sub (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 	return 0;
 }
 //-----------------------------------------------------------------------------//
+int emulate_xor (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
+{
+	xed_uint8_t op_byte;
+	xed_uint_t np;
+	int i = 0;
+
+	np = xed_decoded_inst_get_nprefixes(xedd);
+	op_byte = xed_decoded_inst_get_byte(xedd, np);
+
+	if (0 != np) 
+	{
+		printf("PREFIX");
+		for (i = 0; i < np; i++) {
+			printf(" %2x", xed_decoded_inst_get_byte(xedd, i));
+		}
+		printf("\t");
+		printf("Unimplemented!!!!!\t");
+		return 0;
+	}
+
+	switch (op_byte)
+	{
+		case 0x31:
+			{
+				// 31 /r	XOR r/m32, r32
+				//
+				modrm_t modrm;
+				xed_uint32_t value_src, value_dst;
+
+				modrm.byte = xed_decoded_inst_get_modrm(xedd);
+				printf("31 XOR ModR/M %2x\t", modrm.byte);
+				printf("mod 0x%x, reg 0x%x, rm 0x%x\t", modrm.mod, modrm.reg, modrm.rm);
+
+				value_src = get_r32(cpu, modrm);
+				value_dst = get_rm32(xedd, cpu, modrm, mc, mc_max_cnt);
+				value_dst = value_src ^ value_dst;
+				set_rm32(xedd, cpu, modrm, value_dst, mc, mc_max_cnt);
+			}
+			break;
+		default:
+			printf("Unimplemented %x XOR\t", op_byte);
+			break;
+	}
+
+
+	return 0;
+}
+//-----------------------------------------------------------------------------//
 int emulate_cmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 {
 	xed_uint8_t op_byte;
@@ -2652,6 +2700,10 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 		case XED_ICLASS_SUB:
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
 			emulate_sub(xedd, cpu, mc, mc_max_cnt);
+			break;
+		case XED_ICLASS_XOR:
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
+			emulate_xor(xedd, cpu, mc, mc_max_cnt);
 			break;
 		case XED_ICLASS_CMP:
 			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
