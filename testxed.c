@@ -7,6 +7,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <inttypes.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <asm/prctl.h>
+#include <sys/prctl.h>
 //-----------------------------------------------------------------------------//
 #define TE_SUCCESS		0x0
 #define TE_EMULATION_END	0x8001
@@ -114,6 +118,9 @@ typedef struct {
 	// tmp: temp register
 	// nil: null register
 	gen_reg_t gen_reg[GENERAL_REGISTERS+3];
+	
+	Bit64u pseudo_fs; // contain virtual address of fs base
+
 	flags_reg_t rflags;
 
 	void* stack_buf;
@@ -153,6 +160,12 @@ typedef struct
 } sib_t;
 //-----------------------------------------------------------------------------//
 cpu_t g_cpu = {0};
+//-----------------------------------------------------------------------------//
+// glibc does not support arch_prctl
+int arch_prctl (int code, unsigned long long* addr)
+{    
+	    return syscall(SYS_arch_prctl, code, addr);
+}
 //-----------------------------------------------------------------------------//
 int isValidPtr(const void*p, int len) {
 	if (!p) {
@@ -307,7 +320,7 @@ xed_uint64_t get_sib (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm)
 	}
 
 	sib.byte = xed_decoded_inst_get_byte(xedd, i + 1);
-	printf("get sib at byte %d\t", i + 1);
+	printf("get sib:%x at byte %d\t", sib.byte, i + 1);
 
 	if (xed_operand_values_has_memory_displacement(xedd))
 	{
@@ -340,10 +353,11 @@ xed_uint64_t get_sib (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm)
 			break;
 	}
 
-	if (4 == sib.index) // rsp
+	if (4 == sib.index) // it means none
 	{
-		printf("Error RSP not allowed in SIB\t");
-		return -1;
+		//printf("Error RSP not allowed in SIB\t");
+		//return -1;
+		index_value = 0;
 	}
 	else
 	{
@@ -689,17 +703,19 @@ xed_uint32_t get_rm32 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t
 							// mod 00 rm 100    SIB
 							// mod 01 rm 100    SIB + disp8
 							// mod 02 rm 100    SIB + disp32	
-							xed_reg_enum_t base;
-							xed_reg_enum_t index;
-							xed_int_t scale;
+							
+							//xed_reg_enum_t base;
+							//xed_reg_enum_t index;
+							//xed_int_t scale;
 
+							// incorrect when having FS segment override 0x64
 
-							base = xed_decoded_inst_get_base_reg(xedd, 0);
-							printf("BASE= %3s %d\t", xed_reg_enum_t2str(base), base - XED_REG_RAX);
-							index = xed_decoded_inst_get_index_reg(xedd, 0);
-							printf("INDEX= %3s %d\t", xed_reg_enum_t2str(index), index - XED_REG_RAX);
-							scale = xed_decoded_inst_get_scale(xedd, 0);
-							printf("SCALE= %d\t", scale);
+							//base = xed_decoded_inst_get_base_reg(xedd, 0);
+							//printf("BASE= %3s %d\t", xed_reg_enum_t2str(base), base - XED_REG_RAX);
+							//index = xed_decoded_inst_get_index_reg(xedd, 0);
+							//printf("INDEX= %3s %d\t", xed_reg_enum_t2str(index), index - XED_REG_RAX);
+							//scale = xed_decoded_inst_get_scale(xedd, 0);
+							//printf("SCALE= %d\t", scale);
 
 
 							address = get_sib(xedd, cpu, modrm);
@@ -878,6 +894,33 @@ xed_uint64_t get_rm64 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t
 	xed_uint64_t address = 0;
 	xed_int64_t disp = 0;
 	xed_uint64_t ret_value = 0;
+	xed_uint64_t segbase = 0;
+
+	if (xed_operand_values_has_segment_prefix(xedd))
+	{
+		xed_reg_enum_t seg;
+
+		seg = xed_operand_values_get_seg_reg(xedd, 0); // only memop 0?
+		printf("memop 0 seg:%s\t", xed_reg_enum_t2str(seg));
+		switch (seg)
+		{
+			case XED_REG_FS:
+				segbase = cpu->pseudo_fs;
+				printf("pseduo_fs:0x%lx\t", segbase);
+			       break;
+			case XED_REG_CS:
+			case XED_REG_SS:	       
+			case XED_REG_DS:
+			case XED_REG_ES:
+			case XED_REG_GS:
+			       segbase = 0;
+			       break;
+			default:
+			       printf("ERROR: wrong seg code\n\n");
+			       break;
+		}
+
+	}
 
 	switch (modrm.mod)
 	{
@@ -916,17 +959,19 @@ xed_uint64_t get_rm64 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t
 							// mod 00 rm 100    SIB
 							// mod 01 rm 100    SIB + disp8
 							// mod 02 rm 100    SIB + disp32	
-							xed_reg_enum_t base;
-							xed_reg_enum_t index;
-							xed_int_t scale;
+							
+							//xed_reg_enum_t base;
+							//xed_reg_enum_t index;
+							//xed_int_t scale;
 
+							// incorrect when having FS segment override 0x64
 
-							base = xed_decoded_inst_get_base_reg(xedd, 0);
-							printf("BASE= %3s %d\t", xed_reg_enum_t2str(base), base - XED_REG_RAX);
-							index = xed_decoded_inst_get_index_reg(xedd, 0);
-							printf("INDEX= %3s %d\t", xed_reg_enum_t2str(index), index - XED_REG_RAX);
-							scale = xed_decoded_inst_get_scale(xedd, 0);
-							printf("SCALE= %d\t", scale);
+							//base = xed_decoded_inst_get_base_reg(xedd, 0);
+							//printf("BASE= %3s %d\t", xed_reg_enum_t2str(base), base - XED_REG_RAX);
+							//index = xed_decoded_inst_get_index_reg(xedd, 0);
+							//printf("INDEX= %3s %d\t", xed_reg_enum_t2str(index), index - XED_REG_RAX);
+							//scale = xed_decoded_inst_get_scale(xedd, 0);
+							//printf("SCALE= %d\t", scale);
 
 
 							address = get_sib(xedd, cpu, modrm);
@@ -949,6 +994,9 @@ xed_uint64_t get_rm64 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, mc_t
 						address = cpu->gen_reg[REG_RDI].rrx + disp;
 						break;
 				}
+
+
+				address += segbase;
 
 				// if it's on the stack buffer, overwrite directly, no mc needed
 				if ((address >= (xed_uint64_t)cpu->stack_buf) && (address <= (xed_uint64_t)cpu->stack_buf + cpu->stack_buf_len))
@@ -1232,6 +1280,7 @@ int set_rm64 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, xed_uint64_t 
 						address = cpu->gen_reg[REG_RBX].rrx + disp;
 						break;
 					case 4:
+						address = get_sib(xedd, cpu, modrm);
 						printf("SIB unimplemented!!!!!!!!!!!\n");
 						break;
 					case 5:
@@ -2771,6 +2820,12 @@ int te_function_emulate (int inst_count, void* func, long long int  para0, long 
 
 	g_cpu.stack_buf = stack;
 	g_cpu.stack_buf_len = STACK_SIZE;
+
+
+	// set pseduo segment register
+	arch_prctl(ARCH_GET_FS, &g_cpu.pseudo_fs);
+	//asm ("lea %%fs:0x0, %0\n": "=r"(g_cpu.pseduo_fs));   // segment overrdie prefix doesn't affect lea
+	printf("pseudo_fs:0x%llx\n", g_cpu.pseudo_fs);
 
 	// setup parameters
 	g_cpu.gen_reg[REG_RSP].rrx = (Bit64u)stack + STACK_SIZE;
