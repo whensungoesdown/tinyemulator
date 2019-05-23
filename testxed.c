@@ -1281,7 +1281,6 @@ int set_rm64 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, xed_uint64_t 
 						break;
 					case 4:
 						address = get_sib(xedd, cpu, modrm);
-						printf("SIB unimplemented!!!!!!!!!!!\n");
 						break;
 					case 5:
 						if (0 == modrm.mod)
