@@ -2492,8 +2492,10 @@ int emulate_jz (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, 
 int emulate_jnz (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, xed_uint64_t* new_rip)
 {
 	xed_uint8_t op_byte;
+	xed_uint8_t op_byte2;
 
 	op_byte = xed_decoded_inst_get_byte(xedd, 0);
+	op_byte2 = xed_decoded_inst_get_byte(xedd, 1);
 
 	switch (op_byte)
 	{
@@ -2507,6 +2509,30 @@ int emulate_jnz (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt,
 				{
 					*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + disp + 2;
 					return TE_JUMP;
+				}
+			}
+			break;
+		case 0x0f:
+			{
+				switch (op_byte2)
+				{
+					case 0x85:
+						{
+							// 0f 85 cd		JNE rel32
+							//
+							xed_uint32_t disp;
+							disp = xed_decoded_inst_get_branch_displacement(xedd);
+							printf("branch displacement %x\t", disp);
+							if (0 == cpu->rflags.ZF)
+							{
+								*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + disp + 6;
+								return TE_JUMP;
+							}
+						}
+						break;
+					default:
+						printf("Unimplemented %2x %2x JNBE\t", op_byte, op_byte2);
+						return -1;
 				}
 			}
 			break;
