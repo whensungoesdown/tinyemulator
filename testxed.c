@@ -850,13 +850,22 @@ xed_uint64_t get_m64 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm)
 						printf("RBX:0x%llx + disp:0x%lx\t", cpu->gen_reg[REG_RBX].rrx, disp);
 						break;
 					case 4:
-						printf("SIB Unimplemented!!!!!!!!!!!\n");
+						address = get_sib(xedd, cpu, modrm);
 						break;
 					case 5:
 						if (0 == modrm.mod)
 						{	// 2.2.1.6 RIP-Relative Addressing  64-bit mode
+							xed_uint32_t inst_len = 0;
+							// RIP-Relative Addressing
+							inst_len = xed_decoded_inst_get_length(xedd);
+
+							printf("instruction length:%d\t", inst_len);
+							// add instruction length to RIP, more RIP to next instruction, 
+							// LEA instruction e.g. 48 8d 0d 9c 58 04 00
+
 							printf("mod 0, RM 101 SIB, RIP:0x%llx disp32:0x%lx\t", cpu->gen_reg[REG_RIP].rrx, disp);
 							address = cpu->gen_reg[REG_RIP].rrx + disp;
+							address += inst_len;
 						}
 						else
 						{
@@ -2094,7 +2103,6 @@ int emulate_lea (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 	const xed_operand_values_t* ov;
 	modrm_t modrm;
 	xed_uint64_t value;
-	xed_uint32_t inst_len = 0;
 
 	np = xed_decoded_inst_get_nprefixes(xedd);
 	ov = xed_decoded_inst_operands_const(xedd);
@@ -2121,14 +2129,7 @@ int emulate_lea (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 	printf("mod 0x%x, reg 0x%x, rm 0x%x\t", modrm.mod, modrm.reg, modrm.rm);
 
 	value = get_m64(xedd, cpu, modrm);
-	inst_len = xed_decoded_inst_get_length(xedd);
-
-	printf("instruction length:%d\t", inst_len);
-	// add instruction length to RIP, more RIP to next instruction, 
-	// LEA instruction e.g. 48 8d 0d 9c 58 04 00
-
-
-	value += inst_len;
+	
 
 	if (xed_operand_values_has_rexw_prefix (ov))
 	{
@@ -2300,6 +2301,11 @@ int emulate_xor (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 		printf("\t");
 	}
 
+
+	cpu->rflags.CF = 0;
+	cpu->rflags.OF = 0;
+	printf("CF=0, OF= 0\t");
+
 	switch (op_byte)
 	{
 		case 0x31:
@@ -2316,7 +2322,15 @@ int emulate_xor (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 				value_src = get_r32(cpu, modrm);
 				value_dst = get_rm32(xedd, cpu, modrm, mc, mc_max_cnt);
 				value_dst = value_src ^ value_dst;
+
+				if (0 == value_dst)
+				{
+					cpu->rflags.ZF = 0;
+					printf("ZF=0\t");
+				}
+
 				set_rm32(xedd, cpu, modrm, value_dst, mc, mc_max_cnt);
+
 			}
 			break;
 		default:
@@ -2358,6 +2372,7 @@ int emulate_cmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 				modrm_t modrm;
 				xed_uint32_t value;
 				xed_uint8_t imm;
+				xed_uint32_t tmp;
 
 				modrm.byte = xed_decoded_inst_get_modrm(xedd);
 				printf("83 CMP ModR/M %2x\t", modrm.byte);
@@ -2366,9 +2381,32 @@ int emulate_cmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 				value = get_rm32(xedd, cpu, modrm, mc, mc_max_cnt);
 				imm = xed_decoded_inst_get_signed_immediate(xedd);
 				printf("r/m32 value:0x%x, imm:0x%x\t", value, imm);
-				// CMP set SF PF  todo:
+				// CMP set PF  todo:
+				//
 
-				if (0 == value - (xed_uint32_t)imm)
+
+				tmp = value - imm;
+				// SF: is bit 31 set
+				if (tmp & 0x80000000)
+				{
+					cpu->rflags.SF = 1;
+				}
+				else
+				{
+					cpu->rflags.SF = 0;
+				}
+
+				// OF: did bit 31 change
+				if ((tmp & 0x80000000) ^ (value & 0x80000000))
+				{
+					cpu->rflags.OF = 1;
+				}
+				else
+				{
+					cpu->rflags.OF = 0;
+				}
+
+				if (0 == tmp)
 				{
 					cpu->rflags.ZF = 1;
 				} 
@@ -2377,7 +2415,7 @@ int emulate_cmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 					cpu->rflags.ZF = 0;
 				}
 
-				if ((xed_int32_t)value < (xed_int32_t)imm)
+				if (abs(value) < abs(imm))
 				{
 					cpu->rflags.CF = 1;
 				}
@@ -2389,6 +2427,8 @@ int emulate_cmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 				//printf("ZF:%c\t", cpu->rflags.ZF? '1':'0');
 				printf("ZF:%d\t", cpu->rflags.ZF);
 				printf("CF:%d\t", cpu->rflags.CF);
+				printf("SF:%d\t", cpu->rflags.SF);
+				printf("OF:%d\t", cpu->rflags.OF);
 
 			}
 			break;
@@ -2462,8 +2502,10 @@ int emulate_test (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt
 int emulate_jz (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, xed_uint64_t* new_rip)
 {
 	xed_uint8_t op_byte;
+	xed_uint8_t op_byte2;
 
 	op_byte = xed_decoded_inst_get_byte(xedd, 0);
+	op_byte2 = xed_decoded_inst_get_byte(xedd, 1);
 
 	switch (op_byte)
 	{
@@ -2477,6 +2519,29 @@ int emulate_jz (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, 
 				{
 					*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + disp + 2;
 					return TE_JUMP;
+				}
+			}
+			break;
+		case 0x0f:
+			{
+				switch (op_byte2)
+				{
+					case 0x84:
+						{
+							// 0f 74 cd		JZ rel32
+							xed_int8_t disp;
+							disp = xed_decoded_inst_get_branch_displacement(xedd);
+							printf("branch displacement %x\t", disp);
+							if (1 == cpu->rflags.ZF)
+							{
+								*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + disp + 6;
+								return TE_JUMP;
+							}
+						}
+						break;
+					default:
+						printf("Unimplemented %2x %2x JZ\t", op_byte, op_byte2);
+						return -1;
 				}
 			}
 			break;
@@ -2531,7 +2596,7 @@ int emulate_jnz (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt,
 						}
 						break;
 					default:
-						printf("Unimplemented %2x %2x JNBE\t", op_byte, op_byte2);
+						printf("Unimplemented %2x %2x JNZ\t", op_byte, op_byte2);
 						return -1;
 				}
 			}
@@ -2599,6 +2664,62 @@ int emualte_jnbe (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt
 	}
 	return 0;
 
+}
+//-----------------------------------------------------------------------------//
+int emulate_jle (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, xed_uint64_t* new_rip)
+{
+	xed_uint8_t op_byte;
+	xed_uint8_t op_byte2;
+
+	op_byte = xed_decoded_inst_get_byte(xedd, 0);
+	op_byte2 = xed_decoded_inst_get_byte(xedd, 1);
+
+	switch (op_byte)
+	{
+		case 0x7e:
+			{
+				// 7e cb		rel8
+				xed_int8_t disp;
+				disp = xed_decoded_inst_get_byte(xedd, 1);
+				printf("branch displacement %2x\t", disp);
+				if (1 == cpu->rflags.ZF || cpu->rflags.SF != cpu->rflags.OF)
+				{
+					*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + disp + 2;
+					return TE_JUMP;
+				}
+			}
+			break;
+		case 0x0f:
+			{
+				switch (op_byte2)
+				{
+					case 0x8e:
+						{
+							// 0f 8e cb		rel32
+							xed_int8_t disp;
+							disp = xed_decoded_inst_get_branch_displacement(xedd);
+							printf("branch displacement %x\t", disp);
+							if (1 == cpu->rflags.ZF || cpu->rflags.SF != cpu->rflags.OF)
+							{
+								*new_rip = (xed_int64_t)cpu->gen_reg[REG_RIP].rrx + disp + 6;
+								return TE_JUMP;
+							}
+						}
+						break;
+					default:
+						printf("Unimplemented %2x %2x JLE\t", op_byte, op_byte2);
+						return -1;
+				}
+			}
+			break;
+		default:
+			// any jcc belong to ICLASS_JLE... yes
+			printf("Unimplemented %2x JLE\t", op_byte);
+			return -1;
+
+	}
+
+	return 0;
 }
 //-----------------------------------------------------------------------------//
 int emulate_jmp (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt, xed_uint64_t* new_rip)
@@ -2818,6 +2939,25 @@ int execute_one_instruction (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int
 			else
 			{
 				printf("JNBE error, stop!!!!!\n\n");
+				return -1;
+			}
+			break;
+		case XED_ICLASS_JLE:
+			printf("iclass %s\t", xed_iclass_enum_t2str(iclass));
+			ret = emulate_jle(xedd, cpu, mc, mc_max_cnt, &new_rip);
+			if (TE_JUMP == ret)
+			{
+				cpu->gen_reg[REG_RIP].rrx = new_rip;
+				printf("JLE to 0x%lx\t", new_rip);
+				return 0;
+			}
+			else if (TE_SUCCESS == ret)
+			{
+				break;
+			}
+			else
+			{
+				printf("JLE error, stop!!!!!\n\n");
 				return -1;
 			}
 			break;
