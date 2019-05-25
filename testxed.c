@@ -1141,7 +1141,7 @@ int set_rm32 (xed_decoded_inst_t* xedd, cpu_t* cpu, modrm_t modrm, xed_uint32_t 
 						address = cpu->gen_reg[REG_RBX].rrx + disp;
 						break;
 					case 4:
-						printf("SIB unimplemented!!!!!!!!!!!\n");
+						address = get_sib(xedd, cpu, modrm);
 						break;
 					case 5:
 						if (0 == modrm.mod)
@@ -1939,11 +1939,16 @@ int emulate_mov (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 				printf("C7 MOV ModR/M %2x\t", modrm.byte);
 				printf("mod 0x%x, reg 0x%x, rm 0x%x\t", modrm.mod, modrm.reg, modrm.rm);
 
-				if (0 != np)
+
+				if (0 != np) 
 				{
-					printf("Unimplemented!!!!! PREFIX C7 MOV\t");
-					return 0;
+					printf("PREFIX");
+					for (i = 0; i < np; i++) {
+						printf(" %2x", xed_decoded_inst_get_byte(xedd, i));
+					}
+					printf("\t");
 				}
+
 
 				switch (modrm.mod)
 				{
@@ -1954,7 +1959,14 @@ int emulate_mov (xed_decoded_inst_t* xedd, cpu_t* cpu, mc_t* mc, int mc_max_cnt)
 							xed_uint32_t value;
 							value = xed_decoded_inst_get_signed_immediate(xedd);
 							printf("imm:0x%x\t", value);
-							set_rm32(xedd, cpu, modrm, value, mc, mc_max_cnt);
+							if (!xed_operand_values_has_rexw_prefix (ov))
+							{
+								set_rm32(xedd, cpu, modrm, value, mc, mc_max_cnt);
+							}
+							else
+							{
+								set_rm64(xedd, cpu, modrm, (xed_uint64_t)value, mc, mc_max_cnt);
+							}
 						}
 						break;
 					case 3:
