@@ -6,11 +6,11 @@ test_te: main.o libte.a
 main.o: main.c
 	gcc -g -Wall -c main.c te.h
 
-testxed.o: testxed.c
-	gcc -g -Wall -fPIC -c testxed.c -Ixed/include #xed/lib/libxed.a 
+te.o: te.c
+	gcc -g -Wall -fPIC -c te.c -Ixed/include #xed/lib/libxed.a 
 
-libte.a: testxed.o xed/lib/libxed.a
-	ar rcs libte.a testxed.o xed/lib/libxed.a
+libte.a: te.o xed/lib/libxed.a
+	ar rcs libte.a te.o xed/lib/libxed.a
 
 libs: libte.a
 
